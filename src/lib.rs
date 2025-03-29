@@ -17,10 +17,258 @@
 /// for testing the MCP commands. Future improvements could include more 
 /// sophisticated mocking of the Gmail API and more comprehensive tests.
 ///
-// Re-export GmailServer for use in tests
+// Re-export key types for use in tests
 pub use crate::server::GmailServer;
+pub use crate::config::Config;
+pub use crate::models::EmailMessage;
 pub use crate::logging::setup_logging;
 pub use crate::gmail_custom::deserialize_custom_message;
+
+// Module for centralized configuration
+pub mod config {
+    use std::env;
+    use thiserror::Error;
+    use dotenv::dotenv;
+    use log::debug;
+
+    #[derive(Debug, Error)]
+    pub enum ConfigError {
+        #[error("Missing environment variable: {0}")]
+        MissingEnvVar(String),
+        
+        #[error("Environment error: {0}")]
+        EnvError(#[from] env::VarError),
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct Config {
+        pub client_id: String,
+        pub client_secret: String,
+        pub refresh_token: String,
+        pub access_token: Option<String>,
+    }
+
+    impl Config {
+        pub fn from_env() -> Result<Self, ConfigError> {
+            // Attempt to load .env file if present
+            let _ = dotenv();
+            
+            debug!("Loading Gmail OAuth configuration from environment");
+            
+            // Get required variables
+            let client_id = env::var("GMAIL_CLIENT_ID")
+                .map_err(|_| ConfigError::MissingEnvVar("GMAIL_CLIENT_ID".to_string()))?;
+                
+            let client_secret = env::var("GMAIL_CLIENT_SECRET")
+                .map_err(|_| ConfigError::MissingEnvVar("GMAIL_CLIENT_SECRET".to_string()))?;
+                
+            let refresh_token = env::var("GMAIL_REFRESH_TOKEN")
+                .map_err(|_| ConfigError::MissingEnvVar("GMAIL_REFRESH_TOKEN".to_string()))?;
+                
+            // Get optional access token
+            let access_token = env::var("GMAIL_ACCESS_TOKEN").ok();
+            
+            debug!("OAuth configuration loaded successfully");
+            
+            Ok(Config {
+                client_id,
+                client_secret,
+                refresh_token,
+                access_token,
+            })
+        }
+    }
+}
+
+// Module for data models
+pub mod models {
+    use serde::{Serialize, Deserialize};
+    use gmail::model::Message;
+    use log::debug;
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct EmailMessage {
+        pub id: String,
+        pub thread_id: String,
+        pub subject: Option<String>,
+        pub from: Option<String>,
+        pub to: Option<String>,
+        pub date: Option<String>,
+        pub snippet: Option<String>,
+    }
+    
+    impl EmailMessage {
+        pub fn from_gmail_message(message: Message) -> Self {
+            debug!("Converting Gmail Message to EmailMessage for ID: {}", message.id);
+            
+            // Initialize header values
+            let mut subject = None;
+            let mut from = None;
+            let mut to = None;
+            let mut date = None;
+            
+            // Extract headers if payload.headers exists and is not empty
+            for header in &message.payload.headers {
+                match header.name.as_str() {
+                    "Subject" => {
+                        debug!("Found Subject header: {}", header.value);
+                        subject = Some(header.value.clone());
+                    },
+                    "From" => {
+                        debug!("Found From header: {}", header.value);
+                        from = Some(header.value.clone());
+                    },
+                    "To" => {
+                        debug!("Found To header: {}", header.value);
+                        to = Some(header.value.clone());
+                    },
+                    "Date" => {
+                        debug!("Found Date header: {}", header.value);
+                        date = Some(header.value.clone());
+                    },
+                    _ => {} // Ignore other headers
+                }
+            }
+            
+            // Get snippet
+            let snippet = if message.snippet.is_empty() {
+                None
+            } else {
+                Some(message.snippet)
+            };
+            
+            EmailMessage {
+                id: message.id,
+                thread_id: message.thread_id,
+                subject,
+                from,
+                to,
+                date,
+                snippet,
+            }
+        }
+    }
+}
+
+// Gmail service module
+pub mod gmail_service {
+    use gmail::GmailClient;
+    use gmail::model::Message;
+    use log::{debug, error};
+    use thiserror::Error;
+    use crate::config::Config;
+    
+    #[derive(Debug, Error)]
+    pub enum GmailServiceError {
+        #[error("Gmail API error: {0}")]
+        ApiError(String),
+        
+        #[error("Authentication error: {0}")]
+        AuthError(String),
+    }
+    
+    pub type Result<T> = std::result::Result<T, GmailServiceError>;
+    
+    pub struct GmailService {
+        client: GmailClient,
+    }
+    
+    impl GmailService {
+        pub fn new(config: &Config) -> Result<Self> {
+            debug!("Creating new GmailService with config");
+            let client = create_client(config)?;
+            Ok(Self { client })
+        }
+        
+        pub async fn get_message(&self, message_id: &str) -> Result<Message> {
+            debug!("Getting message with ID: {}", message_id);
+            self.client.messages_get(message_id, "me")
+                .format("full")
+                .await
+                .map_err(|e| GmailServiceError::ApiError(e.to_string()))
+        }
+        
+        pub async fn list_messages(&self, max_results: u32, query: Option<&str>) -> Result<Vec<Message>> {
+            debug!("Listing messages with max_results={}, query={:?}", max_results, query);
+            
+            // Set up the request
+            let mut request = self.client.messages_list("me");
+            request = request.max_results(max_results.into());
+            
+            if let Some(q) = query {
+                request = request.q(q);
+            }
+            
+            // Execute the request
+            let response = request.await
+                .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
+                
+            // Check if we have messages
+            if let Some(message_refs) = response.messages {
+                debug!("Found {} message references", message_refs.len());
+                
+                // Fetch each message
+                let mut messages = Vec::with_capacity(message_refs.len());
+                for msg_ref in message_refs {
+                    match self.get_message(&msg_ref.id).await {
+                        Ok(message) => messages.push(message),
+                        Err(e) => error!("Failed to get message {}: {}", msg_ref.id, e),
+                    }
+                }
+                
+                Ok(messages)
+            } else {
+                debug!("No messages found");
+                Ok(Vec::new())
+            }
+        }
+        
+        pub async fn list_labels(&self) -> Result<String> {
+            debug!("Listing labels");
+            let response = self.client.labels_list("me")
+                .await
+                .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
+                
+            if let Some(labels) = response.labels {
+                match serde_json::to_string_pretty(&labels) {
+                    Ok(json) => Ok(json),
+                    Err(e) => Err(GmailServiceError::ApiError(format!("JSON serialization error: {}", e))),
+                }
+            } else {
+                Ok("[]".to_string())
+            }
+        }
+        
+        pub async fn check_connection(&self) -> Result<(String, u64)> {
+            debug!("Checking connection");
+            let profile = self.client.get_profile("me")
+                .await
+                .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
+                
+            let email = profile.email_address.unwrap_or_else(|| "Unknown".to_string());
+            let messages_total = profile.messages_total.unwrap_or(0) as u64;
+            
+            Ok((email, messages_total))
+        }
+    }
+    
+    fn create_client(config: &Config) -> Result<GmailClient> {
+        debug!("Creating Gmail client with OAuth credentials");
+        
+        // Create auth
+        let auth = gmail::GmailAuth::oauth2(
+            config.access_token.clone().unwrap_or_default(),
+            config.refresh_token.clone(),
+            None,
+        );
+        
+        // Create and return client
+        let client = GmailClient::with_auth(auth);
+        debug!("Gmail client created successfully");
+        
+        Ok(client)
+    }
+}
 
 // Module for logging configuration
 pub mod logging {
@@ -211,29 +459,15 @@ pub mod gmail_custom {
 }
 
 // Module with the server implementation
-pub mod server {
-    use std::env;
-    
-    use dotenv::dotenv;
-    use gmail::GmailClient;
-    use gmail::model::Message;
+pub mod server {    
     use mcp_attr::jsoncall::ErrorCode;
     use mcp_attr::server::{mcp_server, McpServer};
     use mcp_attr::{Error as McpError, Result as McpResult};
-    use log::{info, debug, error, warn};
-    use serde::{Deserialize, Serialize};
+    use log::{info, debug, error};
     
-    // Helper struct for converting headers to a more convenient format
-    #[derive(Serialize, Deserialize, Debug)]
-    struct EmailMessage {
-        id: String,
-        thread_id: String,
-        subject: Option<String>,
-        from: Option<String>,
-        to: Option<String>,
-        date: Option<String>,
-        snippet: Option<String>,
-    }
+    use crate::config::{Config, ConfigError};
+    use crate::gmail_service::{GmailService, GmailServiceError};
+    use crate::models::EmailMessage;
     
     // MCP server for accessing Gmail API
     #[derive(Clone)]
@@ -241,115 +475,7 @@ pub mod server {
     
     impl GmailServer {
         pub fn new() -> Self {
-            // Load environment variables from .env file if present
-            dotenv().ok();
             GmailServer {}
-        }
-    
-        // Extract email details from a Gmail message
-        fn extract_email_details(&self, message: Message) -> EmailMessage {
-            debug!("extract_email_details for message ID: {}", message.id);
-            debug!("Message thread ID: {}", message.thread_id);
-            debug!("Message snippet: {}", message.snippet);
-            
-            // Initialize header values
-            let mut subject = None;
-            let mut from = None;
-            let mut to = None;
-            let mut date = None;
-            
-            // Extract headers if payload.headers exists and is not empty
-            let headers = &message.payload.headers;
-            debug!("Found {} headers in message", headers.len());
-            
-            if !headers.is_empty() {
-                for header in headers {
-                    // Safely handle header processing with error catching
-                    match (header.name.as_str(), &header.value) {
-                        ("Subject", value) => {
-                            debug!("Found Subject header: {}", value);
-                            subject = Some(value.clone());
-                        },
-                        ("From", value) => {
-                            debug!("Found From header: {}", value);
-                            from = Some(value.clone());
-                        },
-                        ("To", value) => {
-                            debug!("Found To header: {}", value);
-                            to = Some(value.clone());
-                        },
-                        ("Date", value) => {
-                            debug!("Found Date header: {}", value);
-                            date = Some(value.clone());
-                        },
-                        (name, value) => {
-                            debug!("Skipping header: {} = {}", name, value);
-                        }
-                    }
-                }
-            } else {
-                debug!("No headers found in message payload");
-            }
-            
-            debug!("Creating EmailMessage with extracted details");
-            debug!("Subject: {:?}", subject);
-            debug!("From: {:?}", from);
-            debug!("To: {:?}", to);
-            debug!("Date: {:?}", date);
-            
-            // Extract snippet with safety check
-            let snippet = if message.snippet.is_empty() {
-                debug!("Message has empty snippet");
-                None
-            } else {
-                Some(message.snippet.clone())
-            };
-            
-            let email = EmailMessage {
-                id: message.id.clone(),
-                thread_id: message.thread_id.clone(),
-                subject,
-                from,
-                to,
-                date,
-                snippet,
-            };
-            
-            debug!("EmailMessage created successfully");
-            email
-        }
-        
-        // Helper function to check required environment variables
-        pub fn check_required_env_vars(&self) -> Result<(), String> {
-            debug!("Checking GMAIL_CLIENT_ID");
-            match env::var("GMAIL_CLIENT_ID") {
-                Ok(val) => debug!("GMAIL_CLIENT_ID is set (length: {})", val.len()),
-                Err(e) => {
-                    error!("GMAIL_CLIENT_ID is missing: {}", e);
-                    return Err("Missing environment variable: GMAIL_CLIENT_ID".to_string());
-                }
-            }
-            
-            debug!("Checking GMAIL_CLIENT_SECRET");
-            match env::var("GMAIL_CLIENT_SECRET") {
-                Ok(val) => debug!("GMAIL_CLIENT_SECRET is set (length: {})", val.len()),
-                Err(e) => {
-                    error!("GMAIL_CLIENT_SECRET is missing: {}", e);
-                    return Err("Missing environment variable: GMAIL_CLIENT_SECRET".to_string());
-                }
-            }
-            
-            debug!("Checking GMAIL_REFRESH_TOKEN");
-            match env::var("GMAIL_REFRESH_TOKEN") {
-                Ok(val) => debug!("GMAIL_REFRESH_TOKEN is set (length: {})", val.len()),
-                Err(e) => {
-                    error!("GMAIL_REFRESH_TOKEN is missing: {}", e);
-                    return Err("Missing environment variable: GMAIL_REFRESH_TOKEN".to_string());
-                }
-            }
-            
-            debug!("All required environment variables are present");
-            Ok(())
         }
         
         // Helper function to create McpError
@@ -357,163 +483,6 @@ pub mod server {
             // Use a numeric error code of 1000 for application errors
             error!("Creating MCP error: {}", message);
             McpError::new(ErrorCode(1000))
-        }
-        
-        // Helper function to create a Gmail client safely
-        fn create_gmail_client(&self) -> Result<GmailClient, String> {
-            debug!("create_gmail_client called");
-            
-            // First check that all required environment variables are set
-            debug!("Checking required environment variables");
-            if let Err(e) = self.check_required_env_vars() {
-                error!("Environment variables check failed: {}", e);
-                return Err(e);
-            }
-            debug!("All required environment variables are present");
-            
-            // Get the access token if available (optional)
-            let access_token = env::var("GMAIL_ACCESS_TOKEN").ok();
-            if let Some(token) = &access_token {
-                debug!("Found access token (length: {})", token.len());
-                if token.len() >= 10 {
-                    debug!("Access token starts with: {}", &token.chars().take(10).collect::<String>());
-                }
-            } else {
-                debug!("No access token found, will use refresh token only");
-            }
-            
-            // Get the required refresh token
-            debug!("Getting refresh token");
-            let refresh_token = match env::var("GMAIL_REFRESH_TOKEN") {
-                Ok(token) => {
-                    debug!("Found refresh token (length: {})", token.len());
-                    if token.len() >= 10 {
-                        debug!("Refresh token starts with: {}", &token.chars().take(10).collect::<String>());
-                    }
-                    token
-                },
-                Err(e) => {
-                    error!("Error getting refresh token: {}", e);
-                    return Err(format!("Failed to get GMAIL_REFRESH_TOKEN: {}", e));
-                }
-            };
-            
-            // Create the auth context using oauth2
-            debug!("Creating GmailAuth object with oauth2");
-            let auth = gmail::GmailAuth::oauth2(
-                access_token.unwrap_or_default(),
-                refresh_token,
-                None, // No callback for refresh
-            );
-            debug!("GmailAuth object created successfully");
-            
-            // Create and return the client
-            debug!("Creating GmailClient with auth");
-            let client = GmailClient::with_auth(auth);
-            debug!("GmailClient created successfully");
-            
-            Ok(client)
-        }
-        
-        // Helper method to attempt to recover from Gmail API message deserialization errors
-        async fn try_recover_message(&self, client: &GmailClient, message_id: &str) -> Option<Message> {
-            debug!("Attempting to recover message data for ID: {}", message_id);
-            
-            // First attempt: Try with minimal format
-            debug!("Attempt 1: Using minimal format");
-            match client.messages_get(message_id, "me").format("minimal").await {
-                Ok(minimal_msg) => {
-                    debug!("Successfully retrieved minimal format for recovery");
-                    
-                    // Now try to get just the headers
-                    debug!("Attempt 2: Getting metadata headers");
-                    let headers_result = client.messages_get(message_id, "me")
-                        .format("metadata")
-                        .metadata_headers(&["Subject", "From", "To", "Date"])
-                        .await;
-                    
-                    if let Ok(headers_msg) = headers_result {
-                        debug!("Successfully retrieved headers for recovery");
-                        
-                        // Create a new Message by combining data from both calls
-                        let mut recovered_msg = minimal_msg;
-                        
-                        // Copy the headers if available
-                        if !headers_msg.payload.headers.is_empty() {
-                            recovered_msg.payload.headers = headers_msg.payload.headers;
-                        }
-                        
-                        debug!("Recovered partial message data by combining minimal + metadata");
-                        return Some(recovered_msg);
-                    }
-                    
-                    // If headers retrieval failed, still return the minimal message
-                    debug!("Header retrieval failed, using minimal data only");
-                    Some(minimal_msg)
-                },
-                Err(e) => {
-                    debug!("All recovery attempts failed: {}", e);
-                    None
-                }
-            }
-        }
-        
-        // Helper method to manually handle Gmail API response to avoid missing field issues
-        async fn get_message_with_recovery(&self, client: &GmailClient, message_id: &str) -> Result<Message, String> {
-            debug!("Getting message with recovery handling for ID: {}", message_id);
-            
-            // Try the standard method first
-            match client.messages_get(message_id, "me").format("full").await {
-                Ok(message) => {
-                    debug!("Successfully retrieved message with standard approach");
-                    Ok(message)
-                },
-                Err(e) => {
-                    debug!("Standard approach failed: {}", e);
-                    
-                    // If standard method fails due to missing fields, try alternative format
-                    if e.to_string().contains("missing field") || e.to_string().contains("JsonError") {
-                        debug!("Detected JSON field error, trying alternate format for message ID: {}", message_id);
-                        
-                        // Try with "minimal" format instead of "full"
-                        match client.messages_get(message_id, "me")
-                            .format("minimal")
-                            .await 
-                        {
-                            Ok(message) => {
-                                debug!("Successfully retrieved message with minimal format");
-                                return Ok(message);
-                            },
-                            Err(err) => {
-                                debug!("Minimal format also failed: {}", err);
-                            }
-                        }
-                        
-                        // Try with "metadata" format and specific headers
-                        match client.messages_get(message_id, "me")
-                            .format("metadata")
-                            .metadata_headers(&["Subject", "From", "To", "Date"])
-                            .await 
-                        {
-                            Ok(message) => {
-                                debug!("Successfully retrieved message with metadata format");
-                                return Ok(message);
-                            },
-                            Err(err) => {
-                                debug!("Metadata format also failed: {}", err);
-                            }
-                        }
-                    }
-                    
-                    // If direct JSON processing fails, try recovery
-                    if let Some(recovered_msg) = self.try_recover_message(client, message_id).await {
-                        debug!("Successfully recovered message");
-                        Ok(recovered_msg)
-                    } else {
-                        Err(format!("Failed to retrieve message: {}", e))
-                    }
-                }
-            }
         }
     }
     
@@ -546,264 +515,61 @@ pub mod server {
             info!("=== START list_emails MCP command ===");
             debug!("list_emails called with max_results={:?}, query={:?}", max_results, query);
             
-            // Log MCP command execution to monitor performance
-            let start_time = std::time::Instant::now();
-            debug!("Command execution started at {:?}", chrono::Local::now());
-            
             // Process parameters
             let max = max_results.unwrap_or(10);
-            debug!("Resolved max_results parameter to {} messages", max);
-            debug!("Query parameter is {}", if query.is_some() { "present" } else { "not present" });
             
-            debug!("======== ENVIRONMENT CHECK ========");
-            // Check environment before doing anything
-            match std::env::var("GMAIL_CLIENT_ID") {
-                Ok(val) => debug!("GMAIL_CLIENT_ID is set with length {}", val.len()),
-                Err(e) => warn!("GMAIL_CLIENT_ID not available: {}", e),
-            }
-            
-            match std::env::var("GMAIL_CLIENT_SECRET") {
-                Ok(val) => debug!("GMAIL_CLIENT_SECRET is set with length {}", val.len()),
-                Err(e) => warn!("GMAIL_CLIENT_SECRET not available: {}", e),
-            }
-            
-            match std::env::var("GMAIL_REFRESH_TOKEN") {
-                Ok(val) => debug!("GMAIL_REFRESH_TOKEN is set with length {}", val.len()),
-                Err(e) => warn!("GMAIL_REFRESH_TOKEN not available: {}", e),
-            }
-            
-            match std::env::var("GMAIL_ACCESS_TOKEN") {
-                Ok(val) => debug!("GMAIL_ACCESS_TOKEN is set with length {}", val.len()),
-                Err(e) => debug!("GMAIL_ACCESS_TOKEN not available: {}", e),
-            }
-            
-            match dotenv::dotenv() {
-                Ok(path) => debug!("Loaded .env file from: {:?}", path),
-                Err(e) => debug!("No .env file loaded: {}", e),
-            }
-            debug!("======== END ENVIRONMENT CHECK ========");
-            
-            // Create Gmail client
-            debug!("======== CLIENT CREATION ========");
-            debug!("Creating Gmail client for API access");
-            let client_start = std::time::Instant::now();
-            let client = match self.create_gmail_client() {
-                Ok(client) => {
-                    let elapsed = client_start.elapsed();
-                    debug!("Gmail client created successfully in {:?}", elapsed);
-                    client
-                },
+            // Load configuration
+            let config = match Config::from_env() {
+                Ok(config) => config,
                 Err(err) => {
-                    error!("Failed to create Gmail client: {}", err);
-                    error!("This is likely due to authentication issues");
-                    return Err(self.to_mcp_error(&err));
+                    let msg = match err {
+                        ConfigError::MissingEnvVar(var) => format!("Missing environment variable: {}", var),
+                        ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
                 }
             };
-            debug!("======== END CLIENT CREATION ========");
             
-            // Set up request
-            debug!("======== REQUEST PREPARATION ========");
-            debug!("Setting up Gmail messages_list request");
-            let mut request = client.messages_list("me");
-            debug!("Set user_id parameter to 'me'");
+            // Create Gmail service
+            let service = match GmailService::new(&config) {
+                Ok(service) => service,
+                Err(err) => {
+                    let msg = match err {
+                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
+                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
+                }
+            };
             
-            request = request.max_results(max.into());
-            debug!("Set max_results parameter to {}", max);
+            // Get messages
+            let messages = match service.list_messages(max, query.as_deref()).await {
+                Ok(messages) => messages,
+                Err(err) => {
+                    let msg = match err {
+                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
+                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
+                }
+            };
             
-            if let Some(q) = query.clone() {
-                debug!("Adding query parameter: {}", q);
-                request = request.q(&q);
-                debug!("Gmail search query parameter added successfully");
-            } else {
-                debug!("No search query provided, will return messages based on default sorting");
-            }
-            debug!("======== END REQUEST PREPARATION ========");
-            
-            // Send request
-            debug!("======== API REQUEST EXECUTION ========");
-            debug!("Sending request to Gmail API (messages.list endpoint)");
-            let request_start = std::time::Instant::now();
-            
-            // Just use a standard approach but handle JSON errors more gracefully
-            debug!("Sending request to Gmail API messages.list endpoint with error handling");
-            
-            // The client request can only be used once, so create a clone for potential retry
-            let _request_clone = client.messages_list("me")
-                .max_results(max.into())
-                .q(query.as_deref().unwrap_or(""));
+            // Convert to EmailMessage objects
+            let email_messages: Vec<EmailMessage> = messages.into_iter()
+                .map(EmailMessage::from_gmail_message)
+                .collect();
                 
-            // Try the standard request
-            let response = match request.await {
-                Ok(list) => {
-                    debug!("Successful messages.list response");
-                    list
+            // Return as JSON
+            match serde_json::to_string_pretty(&email_messages) {
+                Ok(json) => {
+                    info!("=== END list_emails MCP command (success) ===");
+                    Ok(json)
                 },
                 Err(e) => {
-                    error!("Gmail API error when calling messages.list: {}", e);
-                    error!("API request failed after {:?}", request_start.elapsed());
-                    
-                    // Handle JSON deserialization errors gracefully
-                    if e.to_string().contains("missing field") || e.to_string().contains("JsonError") {
-                        warn!("JSON error in messages.list response: {}", e);
-                        
-                        // Since we can't easily access raw API responses with the current gmail-rs crate,
-                        // implement a simpler fallback mechanism to manually fetch messages
-                        
-                        debug!("Attempting fallback with manual message fetching");
-                        
-                        // We'll create a simple array of known emails
-                        let mut email_details = Vec::new();
-                        
-                        // Get user's profile to check if we at least have access to the account
-                        match client.get_profile("me").await {
-                            Ok(profile) => {
-                                debug!("Profile query successful, indicating API access works");
-                                let email_addr = profile.email_address.unwrap_or_else(|| "Unknown".to_string());
-                                debug!("User email: {}", email_addr);
-                                
-                                // Create a placeholder email to indicate API connection worked but 
-                                // message listing has an issue
-                                let placeholder = EmailMessage {
-                                    id: "placeholder".to_string(),
-                                    thread_id: "placeholder".to_string(),
-                                    subject: Some("API Connection Working".to_string()),
-                                    from: Some(format!("Gmail API <{}>", email_addr)),
-                                    to: Some(email_addr),
-                                    date: Some(chrono::Local::now().to_rfc3339()),
-                                    snippet: Some("Gmail API connection is working, but there was an issue with the message listing. This is a known issue with the Gmail API that we're working on fixing. Please try again later.".to_string()),
-                                };
-                                
-                                email_details.push(placeholder);
-                                
-                                // Convert to JSON and return
-                                match serde_json::to_string_pretty(&email_details) {
-                                    Ok(json) => {
-                                        debug!("Returning placeholder message to indicate API access without error");
-                                        return Ok(json);
-                                    },
-                                    Err(e) => {
-                                        error!("JSON serialization error for placeholder: {}", e);
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                warn!("Profile query failed: {}", e);
-                            }
-                        }
-                        
-                        // If all fallback attempts fail, return a friendly error message
-                        warn!("All fallback attempts failed - returning error to user");
-                        let friendly_error = "Unable to list emails due to API formatting issues. This is a known issue with the Gmail API that we're working on fixing. Please try again later.";
-                        return Err(self.to_mcp_error(friendly_error));
-                    } else {
-                        // For non-JSON errors, return the error
-                        error!("Returning error to client: {}", e);
-                        let error_msg = format!("Gmail API error: {}", e);
-                        return Err(self.to_mcp_error(&error_msg));
-                    }
+                    let error_msg = format!("JSON serialization error: {}", e);
+                    error!("=== END list_emails MCP command (error) ===");
+                    Err(self.to_mcp_error(&error_msg))
                 }
-            };
-            debug!("======== END API REQUEST EXECUTION ========");
-            
-            // Process response
-            debug!("======== RESPONSE PROCESSING ========");
-            if let Some(messages) = response.messages.clone() {
-                let count = messages.len();
-                info!("Found {} messages in response", count);
-                
-                if count == 0 {
-                    debug!("No messages returned despite successful API call");
-                    return Ok("[]".to_string());
-                }
-                
-                debug!("Will process {} message(s) to extract details", count);
-                let mut email_details = Vec::with_capacity(count);
-                
-                debug!("Starting individual message retrieval loop");
-                for (index, msg_ref) in messages.iter().enumerate() {
-                    debug!("-------- Processing message {}/{} --------", index + 1, count);
-                    debug!("Message ID: {} | Thread ID: {:?}", msg_ref.id, msg_ref.thread_id);
-                    
-                    let msg_start = std::time::Instant::now();
-                    debug!("Fetching full message details for ID: {}", msg_ref.id);
-                    debug!("API call: messages.get with ID {}", msg_ref.id);
-                    
-                    // Use our helper method that includes built-in recovery
-                    let message = match self.get_message_with_recovery(&client, &msg_ref.id).await {
-                        Ok(msg) => {
-                            let elapsed = msg_start.elapsed();
-                            debug!("Successfully retrieved message details for ID: {} in {:?}", msg_ref.id, elapsed);
-                            debug!("Message structure validation:");
-                            debug!("- size_estimate: {:?}", msg.size_estimate);
-                            debug!("- labels: {:?}", msg.label_ids);
-                            debug!("- internal_date: {}", msg.internal_date);
-                            debug!("- payload.headers count: {}", msg.payload.headers.len());
-                            msg
-                        },
-                        Err(e) => {
-                            error!("All attempts to retrieve message {} failed: {}", msg_ref.id, e);
-                            let error_msg = format!(
-                                "Gmail API message format error: The message has a format issue and all recovery attempts failed. Message ID: {}. Error: {}", 
-                                msg_ref.id, e
-                            );
-                            error!("{}", error_msg);
-                            return Err(self.to_mcp_error(&error_msg));
-                        }
-                    };
-                    
-                    debug!("Extracting email details for message ID: {}", message.id);
-                    let extract_start = std::time::Instant::now();
-                    let email = self.extract_email_details(message);
-                    debug!("Email extraction completed in {:?}", extract_start.elapsed());
-                    
-                    // Log summary of extracted email
-                    debug!("Extracted email summary:");
-                    debug!("  Subject: {:?}", email.subject);
-                    debug!("  From: {:?}", email.from);
-                    debug!("  To: {:?}", email.to);
-                    debug!("  Date: {:?}", email.date);
-                    debug!("  Snippet length: {} characters", email.snippet.as_ref().map_or(0, |s| s.len()));
-                    
-                    debug!("Adding email to results list");
-                    email_details.push(email);
-                    debug!("-------- End processing message {}/{} --------", index + 1, count);
-                }
-                
-                debug!("All {} messages processed successfully", count);
-                debug!("Converting {} email details to JSON", email_details.len());
-                
-                let json_start = std::time::Instant::now();
-                match serde_json::to_string_pretty(&email_details) {
-                    Ok(json) => {
-                        let elapsed = json_start.elapsed();
-                        debug!("JSON serialization successful in {:?}", elapsed);
-                        info!("Returning JSON response with {} characters", json.len());
-                        
-                        if json.len() > 200 {
-                            debug!("First 200 chars of JSON: {}", &json[..200.min(json.len())]);
-                            debug!("Last 100 chars of JSON: {}", &json[json.len()-100.min(json.len())..]);
-                        } else {
-                            debug!("Full JSON content: {}", json);
-                        }
-                        
-                        info!("=== END list_emails MCP command (success) ===");
-                        info!("Total execution time: {:?}", start_time.elapsed());
-                        Ok(json)
-                    },
-                    Err(e) => {
-                        error!("JSON serialization error: {}", e);
-                        error!("Failed to serialize {} email objects", email_details.len());
-                        let error_msg = format!("JSON serialization error: {}", e);
-                        error!("=== END list_emails MCP command (error) ===");
-                        Err(self.to_mcp_error(&error_msg))
-                    }
-                }
-            } else {
-                debug!("No 'messages' field in API response or it was empty");
-                info!("No messages found in response, returning empty array");
-                info!("=== END list_emails MCP command (empty result) ===");
-                info!("Total execution time: {:?}", start_time.elapsed());
-                Ok("[]".to_string())
             }
         }
         
@@ -813,25 +579,48 @@ pub mod server {
         ///   message_id: The ID of the message to retrieve
         #[tool]
         async fn get_email(&self, message_id: String) -> McpResult<String> {
-            // Create Gmail client
-            let client = match self.create_gmail_client() {
-                Ok(client) => client,
-                Err(err) => return Err(self.to_mcp_error(&err)),
-            };
+            debug!("get_email called with message_id={}", message_id);
             
-            // Get message
-            let message = match client.messages_get(&message_id, "me").format("full").await {
-                Ok(m) => m,
-                Err(e) => {
-                    let error_msg = format!("Gmail API error: {}", e);
-                    return Err(self.to_mcp_error(&error_msg));
+            // Load configuration
+            let config = match Config::from_env() {
+                Ok(config) => config,
+                Err(err) => {
+                    let msg = match err {
+                        ConfigError::MissingEnvVar(var) => format!("Missing environment variable: {}", var),
+                        ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
                 }
             };
             
-            // Process message
-            let email = self.extract_email_details(message);
+            // Create Gmail service
+            let service = match GmailService::new(&config) {
+                Ok(service) => service,
+                Err(err) => {
+                    let msg = match err {
+                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
+                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
+                }
+            };
             
-            // Return JSON response
+            // Get message
+            let message = match service.get_message(&message_id).await {
+                Ok(message) => message,
+                Err(err) => {
+                    let msg = match err {
+                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
+                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
+                }
+            };
+            
+            // Convert to EmailMessage
+            let email = EmailMessage::from_gmail_message(message);
+            
+            // Return as JSON
             match serde_json::to_string_pretty(&email) {
                 Ok(json) => Ok(json),
                 Err(e) => {
@@ -857,32 +646,42 @@ pub mod server {
         /// Returns a list of all labels in the user's mailbox
         #[tool]
         async fn list_labels(&self) -> McpResult<String> {
-            // Create Gmail client
-            let client = match self.create_gmail_client() {
-                Ok(client) => client,
-                Err(err) => return Err(self.to_mcp_error(&err)),
+            debug!("list_labels called");
+            
+            // Load configuration
+            let config = match Config::from_env() {
+                Ok(config) => config,
+                Err(err) => {
+                    let msg = match err {
+                        ConfigError::MissingEnvVar(var) => format!("Missing environment variable: {}", var),
+                        ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
+                }
+            };
+            
+            // Create Gmail service
+            let service = match GmailService::new(&config) {
+                Ok(service) => service,
+                Err(err) => {
+                    let msg = match err {
+                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
+                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
+                }
             };
             
             // Get labels
-            let response = match client.labels_list("me").await {
-                Ok(r) => r,
-                Err(e) => {
-                    let error_msg = format!("Gmail API error: {}", e);
-                    return Err(self.to_mcp_error(&error_msg));
+            match service.list_labels().await {
+                Ok(json) => Ok(json),
+                Err(err) => {
+                    let msg = match err {
+                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
+                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
+                    };
+                    Err(self.to_mcp_error(&msg))
                 }
-            };
-            
-            // Return labels as JSON
-            if let Some(labels) = response.labels {
-                match serde_json::to_string_pretty(&labels) {
-                    Ok(json) => Ok(json),
-                    Err(e) => {
-                        let error_msg = format!("JSON serialization error: {}", e);
-                        Err(self.to_mcp_error(&error_msg))
-                    }
-                }
-            } else {
-                Ok("[]".to_string())
             }
         }
         
@@ -891,26 +690,45 @@ pub mod server {
         /// Tests the connection to Gmail API by retrieving the user's profile
         #[tool]
         async fn check_connection(&self) -> McpResult<String> {
-            // Create Gmail client
-            let client = match self.create_gmail_client() {
-                Ok(client) => client,
-                Err(err) => return Err(self.to_mcp_error(&err)),
-            };
+            debug!("check_connection called");
             
-            // Get profile
-            let profile = match client.get_profile("me").await {
-                Ok(p) => p,
-                Err(e) => {
-                    let error_msg = format!("Gmail API error: {}", e);
-                    return Err(self.to_mcp_error(&error_msg));
+            // Load configuration
+            let config = match Config::from_env() {
+                Ok(config) => config,
+                Err(err) => {
+                    let msg = match err {
+                        ConfigError::MissingEnvVar(var) => format!("Missing environment variable: {}", var),
+                        ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
                 }
             };
             
-            // Format response
-            let email = profile.email_address.unwrap_or_else(|| "Unknown".to_string());
-            let messages_total = profile.messages_total.unwrap_or(0);
+            // Create Gmail service
+            let service = match GmailService::new(&config) {
+                Ok(service) => service,
+                Err(err) => {
+                    let msg = match err {
+                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
+                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
+                    };
+                    return Err(self.to_mcp_error(&msg));
+                }
+            };
             
-            Ok(format!("Connection successful!\nEmail: {}\nTotal messages: {}", email, messages_total))
+            // Check connection
+            match service.check_connection().await {
+                Ok((email, messages_total)) => {
+                    Ok(format!("Connection successful!\nEmail: {}\nTotal messages: {}", email, messages_total))
+                },
+                Err(err) => {
+                    let msg = match err {
+                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
+                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
+                    };
+                    Err(self.to_mcp_error(&msg))
+                }
+            }
         }
     }
 }
