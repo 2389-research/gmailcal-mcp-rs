@@ -41,8 +41,8 @@ pub mod logging {
     ///
     /// The path to the created log file
     pub fn setup_logging(log_level: LevelFilter, log_file: Option<&str>) -> std::io::Result<String> {
-        // Create a timestamp for the log file
-        let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+        // Create a timestamp for the log file (only include date and hour for fewer log files)
+        let timestamp = Local::now().format("%Y%m%d_%H").to_string();
         
         // Determine log file path
         let log_path = match log_file {
@@ -50,7 +50,7 @@ pub mod logging {
             None => format!("gmail_mcp_{}.log", timestamp),
         };
         
-        println!("Setting up logging to file: {}", log_path);
+        // No stdout logging
         
         // Create the log file with append mode
         let log_file = OpenOptions::new()
@@ -71,14 +71,8 @@ pub mod logging {
         // Use the default config for simplicity
         let config = Config::default();
             
-        // Initialize the logger
+        // Initialize only the file logger (no stdout logging)
         CombinedLogger::init(vec![
-            TermLogger::new(
-                log_level,
-                config.clone(),
-                TerminalMode::Mixed,
-                ColorChoice::Auto,
-            ),
             WriteLogger::new(
                 log_level, 
                 config,
@@ -103,7 +97,8 @@ pub mod logging {
             .append(true)
             .open(log_path)?;
             
-        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        // Keep detailed timestamp in the log entries themselves
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
         writeln!(file, "[{}] DIRECT: {}", timestamp, message)
     }
 }
@@ -592,7 +587,7 @@ pub mod server {
             debug!("Sending request to Gmail API messages.list endpoint with error handling");
             
             // The client request can only be used once, so create a clone for potential retry
-            let request_clone = client.messages_list("me")
+            let _request_clone = client.messages_list("me")
                 .max_results(max.into())
                 .q(query.as_deref().unwrap_or(""));
                 

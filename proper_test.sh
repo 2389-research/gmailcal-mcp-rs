@@ -25,7 +25,7 @@ sleep 1
 
 # Send initialization message first (required by MCP protocol)
 echo -e "${YELLOW}Sending initialization message...${NC}"
-INIT_MSG='{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"capabilities":{},"clientInfo":{"name":"test-client","version":"1.0"},"protocolVersion":"0.1","trace":"off"}}'
+INIT_MSG='{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"capabilities":{},"clientInfo":{"name":"test-client","version":"1.0"},"protocolVersion":"2024-11-05","trace":"off"}}'
 echo $INIT_MSG > $FIFO
 
 # Wait for server to process initialization

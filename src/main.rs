@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn, LevelFilter};
+use log::{debug, error, info, LevelFilter};
 use mcp_attr::server::serve_stdio;
 use mcp_gmailcal::{logging::write_direct_to_log, setup_logging, GmailServer};
 use std::env;
@@ -16,7 +16,7 @@ fn direct_log(message: &str) {
         if !path.is_empty() {
             let _ = write_direct_to_log(&path, message);
         }
-        println!("DIRECT LOG: {}", message);
+        // No stdout logging
     }
 }
 
@@ -26,8 +26,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set environment variable to show all log levels
     env::set_var("RUST_LOG", "debug");
 
-    println!("Starting Gmail MCP Server...");
-
     // Initialize logging with maximum verbosity
     let log_file = setup_logging(LevelFilter::Trace, None)?;
 
@@ -35,9 +33,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(mut path) = LOG_FILE_PATH.lock() {
         *path = log_file.clone();
     }
-
-    // Log startup information
-    println!("Initialized logging to: {}", log_file);
     direct_log(&format!("Direct logging test - starting application"));
 
     info!("Gmail MCP Server starting...");
