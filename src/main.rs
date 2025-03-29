@@ -1,38 +1,76 @@
+use mcp_attr::server::serve_stdio;
+use mcp_weather::{GmailServer, setup_logging, logging::write_direct_to_log};
+use log::{info, debug, error, warn, LevelFilter};
+use std::env;
+use std::sync::Arc;
 use std::sync::Mutex;
 
-use mcp_attr::server::{mcp_server, McpServer, serve_stdio};
-use mcp_attr::Result;
+// We'll use this to store the log file path globally
+lazy_static::lazy_static! {
+    static ref LOG_FILE_PATH: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+}
 
+// Direct log function that doesn't depend on the logging system
+fn direct_log(message: &str) {
+    if let Ok(path) = LOG_FILE_PATH.lock() {
+        if !path.is_empty() {
+            let _ = write_direct_to_log(&path, message);
+        }
+        println!("DIRECT LOG: {}", message);
+    }
+}
+
+// Main function to start the MCP server
 #[tokio::main]
-async fn main() -> Result<()> {
-    serve_stdio(ExampleServer(Mutex::new(ServerData { count: 0 }))).await?;
-    Ok(())
-}
-
-struct ExampleServer(Mutex<ServerData>);
-
-struct ServerData {
-  /// Server state
-  count: u32,
-}
-
-#[mcp_server]
-impl McpServer for ExampleServer {
-    /// Description sent to MCP client
-    #[prompt]
-    async fn example_prompt(&self) -> Result<&str> {
-        Ok("Hello!")
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Set environment variable to show all log levels
+    env::set_var("RUST_LOG", "debug");
+    
+    println!("Starting Gmail MCP Server...");
+    
+    // Initialize logging with maximum verbosity
+    let log_file = setup_logging(LevelFilter::Trace, None)?;
+    
+    // Store the log file path for direct logging
+    if let Ok(mut path) = LOG_FILE_PATH.lock() {
+        *path = log_file.clone();
     }
-
-    #[resource("my_app://files/{name}.txt")]
-    async fn read_file(&self, name: String) -> Result<String> {
-        Ok(format!("Content of {name}.txt"))
+    
+    // Log startup information
+    println!("Initialized logging to: {}", log_file);
+    direct_log(&format!("Direct logging test - starting application"));
+    
+    info!("Gmail MCP Server starting...");
+    info!("Logs will be saved to {}", log_file);
+    debug!("Debug logging enabled");
+    
+    // Log some system information
+    direct_log(&format!("Current directory: {:?}", std::env::current_dir().unwrap_or_default()));
+    debug!("Environment variables: RUST_LOG={:?}", env::var("RUST_LOG").unwrap_or_default());
+    
+    // Start the MCP server
+    debug!("Creating GmailServer instance");
+    let server = GmailServer::new();
+    
+    // Log right before starting the server
+    info!("Starting MCP server with stdio interface");
+    direct_log("About to start MCP server with serve_stdio()");
+    
+    // Run the server
+    let result = serve_stdio(server).await;
+    
+    // Log the result
+    if let Err(ref e) = result {
+        let error_msg = format!("Error running MCP server: {}", e);
+        error!("{}", error_msg);
+        direct_log(&error_msg);
+    } else {
+        info!("MCP server completed successfully");
+        direct_log("MCP server completed successfully");
     }
-
-    #[tool]
-    async fn add_count(&self, message: String) -> Result<String> {
-        let mut state = self.0.lock().unwrap();
-        state.count += 1;
-        Ok(format!("Echo: {message} {}", state.count))
-    }
+    
+    debug!("Exiting application");
+    direct_log("Application exit");
+    
+    result.map_err(|e| e.into())
 }
