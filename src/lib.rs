@@ -22,7 +22,6 @@ pub use crate::server::GmailServer;
 pub use crate::config::Config;
 pub use crate::models::EmailMessage;
 pub use crate::logging::setup_logging;
-pub use crate::gmail_custom::deserialize_custom_message;
 
 // Module for centralized configuration
 pub mod config {
@@ -273,12 +272,12 @@ pub mod gmail_service {
 // Module for logging configuration
 pub mod logging {
     use simplelog::*;
-    use std::fs::{OpenOptions};
+    use std::fs::OpenOptions;
     use std::io::Write;
     use chrono::Local;
     use log::LevelFilter;
 
-    /// Sets up logging to both console and file
+    /// Sets up logging to file and optionally console
     ///
     /// # Arguments
     ///
@@ -289,7 +288,7 @@ pub mod logging {
     ///
     /// The path to the created log file
     pub fn setup_logging(log_level: LevelFilter, log_file: Option<&str>) -> std::io::Result<String> {
-        // Create a timestamp for the log file (only include date and hour for fewer log files)
+        // Create a timestamp for the log file
         let timestamp = Local::now().format("%Y%m%d_%H").to_string();
         
         // Determine log file path
@@ -297,8 +296,6 @@ pub mod logging {
             Some(path) => path.to_string(),
             None => format!("gmail_mcp_{}.log", timestamp),
         };
-        
-        // No stdout logging
         
         // Create the log file with append mode
         let log_file = OpenOptions::new()
@@ -318,143 +315,40 @@ pub mod logging {
         
         // Use the default config for simplicity
         let config = Config::default();
-            
-        // Initialize only the file logger (no stdout logging)
+        
+        // During development, consider uncommenting the second logger to see logs on console too
         CombinedLogger::init(vec![
-            WriteLogger::new(
-                log_level, 
-                config,
-                log_file,
-            ),
+            // File logger
+            WriteLogger::new(log_level, config, log_file),
+            
+            // Uncomment for console logging during development
+            // TermLogger::new(
+            //     log_level,
+            //     Config::default(),
+            //     TerminalMode::Mixed,
+            //     ColorChoice::Auto
+            // ),
         ])
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         
-        // Log initial message to confirm logging is working
         log::info!("Logging initialized to file: {}", log_path);
         log::debug!("Debug logging enabled");
         
         Ok(log_path)
     }
-    
-    /// Helper function to write a direct message to the log file
-    /// Useful for debugging when the logging system itself may have issues
-    pub fn write_direct_to_log(log_path: &str, message: &str) -> std::io::Result<()> {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(true)
-            .open(log_path)?;
-            
-        // Keep detailed timestamp in the log entries themselves
-        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-        writeln!(file, "[{}] DIRECT: {}", timestamp, message)
-    }
 }
 
 // Custom Gmail message handling module
 pub mod gmail_custom {
-    use log::{debug, warn};
-    use gmail::model::Message;
-    use serde_json::Value;
+    use log::debug;
     
-    // Define a struct that will help us parse raw JSON responses
-    #[derive(Debug)]
-    pub struct MessageReference {
-        pub id: String, 
-        pub thread_id: String,
-    }
+    // This module used to contain custom deserialization and recovery logic
+    // We've simplified to use the standard gmail-rs API directly
+    // This stub remains in case we need to add basic helpers in the future
     
-    /// Custom message deserializer to handle missing fields in Gmail API responses
-    /// This function attempts to deserialize a JSON response into a Message struct,
-    /// filling in missing fields with default values
-    pub fn deserialize_custom_message(json_str: &String) -> Result<Message, serde_json::Error> {
-        debug!("Deserializing custom message from JSON");
-        
-        // First, parse the JSON into a generic Value
-        let mut json_value: Value = serde_json::from_str(json_str)?;
-        
-        // Check if it's an object
-        if let Value::Object(ref mut map) = json_value {
-            // Check for required fields and add defaults if missing
-            
-            // Handle internalDate (required as String in gmail-rs)
-            if !map.contains_key("internalDate") {
-                debug!("Adding missing internalDate field with default value");
-                map.insert("internalDate".to_string(), Value::String("0".to_string()));
-                warn!("Added default internalDate to message: '0'");
-            }
-            
-            // Check for internal_date field - Gmail API might use either naming convention
-            if !map.contains_key("internal_date") {
-                debug!("Adding missing internal_date field with default value");
-                map.insert("internal_date".to_string(), Value::String("0".to_string()));
-                warn!("Added default internal_date to message: '0'");
-            }
-            
-            // Handle label_ids (required as Vec<String> in gmail-rs)
-            if !map.contains_key("labelIds") {
-                debug!("Adding missing labelIds field with empty array");
-                map.insert("labelIds".to_string(), Value::Array(vec![]));
-                warn!("Added empty labelIds array to message");
-            }
-            
-            // Add other required fields with sensible defaults if needed
-            if !map.contains_key("snippet") {
-                debug!("Adding missing snippet field with empty string");
-                map.insert("snippet".to_string(), Value::String("".to_string()));
-            }
-            
-            // Ensure payload exists
-            if !map.contains_key("payload") {
-                debug!("Adding missing payload field with default structure");
-                let mut payload = serde_json::Map::new();
-                
-                // Add headers with empty array
-                payload.insert("headers".to_string(), Value::Array(vec![]));
-                
-                // Add payload to the message
-                map.insert("payload".to_string(), Value::Object(payload));
-                warn!("Added default payload structure to message");
-            } else if let Value::Object(ref mut payload) = map["payload"] {
-                // Ensure headers exist in payload
-                if !payload.contains_key("headers") {
-                    debug!("Adding missing headers field to payload");
-                    payload.insert("headers".to_string(), Value::Array(vec![]));
-                    warn!("Added empty headers array to message payload");
-                }
-            }
-        }
-        
-        // Now try to deserialize the patched JSON
-        let message = serde_json::from_value::<Message>(json_value)?;
-        debug!("Successfully deserialized message with ID: {}", message.id);
-        
-        Ok(message)
-    }
-    
-    /// Parse message references from the list response
-    pub fn extract_message_refs(json_str: &String) -> Result<Vec<MessageReference>, serde_json::Error> {
-        debug!("Extracting message references from list response");
-        
-        let json_value: Value = serde_json::from_str(json_str)?;
-        let mut references = Vec::new();
-        
-        if let Some(Value::Array(msgs)) = json_value.get("messages") {
-            for (i, msg) in msgs.iter().enumerate() {
-                if let (Some(Value::String(id)), Some(Value::String(thread_id))) = 
-                    (msg.get("id"), msg.get("threadId")) {
-                    debug!("Found message[{}]: id={}, threadId={}", i, id, thread_id);
-                    references.push(MessageReference {
-                        id: id.clone(),
-                        thread_id: thread_id.clone(),
-                    });
-                } else {
-                    debug!("Message at index {} is missing required fields", i);
-                }
-            }
-        }
-        
-        Ok(references)
+    // Initialize module for compatibility
+    pub fn init() {
+        debug!("Initialized gmail_custom module (simplified)");
     }
 }
 
@@ -483,6 +377,30 @@ pub mod server {
             // Use a numeric error code of 1000 for application errors
             error!("Creating MCP error: {}", message);
             McpError::new(ErrorCode(1000))
+        }
+        
+        // Helper function to map GmailServiceError to McpError
+        fn map_gmail_error(&self, err: GmailServiceError) -> McpError {
+            let msg = match err {
+                GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
+                GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
+            };
+            self.to_mcp_error(&msg)
+        }
+        
+        // Helper function to initialize Gmail service
+        async fn init_gmail_service(&self) -> McpResult<GmailService> {
+            // Load configuration
+            let config = Config::from_env().map_err(|err| {
+                let msg = match err {
+                    ConfigError::MissingEnvVar(var) => format!("Missing environment variable: {}", var),
+                    ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
+                };
+                self.to_mcp_error(&msg)
+            })?;
+            
+            // Create Gmail service
+            GmailService::new(&config).map_err(|err| self.map_gmail_error(err))
         }
     }
     
@@ -518,41 +436,12 @@ pub mod server {
             // Process parameters
             let max = max_results.unwrap_or(10);
             
-            // Load configuration
-            let config = match Config::from_env() {
-                Ok(config) => config,
-                Err(err) => {
-                    let msg = match err {
-                        ConfigError::MissingEnvVar(var) => format!("Missing environment variable: {}", var),
-                        ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
-            
-            // Create Gmail service
-            let service = match GmailService::new(&config) {
-                Ok(service) => service,
-                Err(err) => {
-                    let msg = match err {
-                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
-                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
+            // Get the Gmail service
+            let service = self.init_gmail_service().await?;
             
             // Get messages
-            let messages = match service.list_messages(max, query.as_deref()).await {
-                Ok(messages) => messages,
-                Err(err) => {
-                    let msg = match err {
-                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
-                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
+            let messages = service.list_messages(max, query.as_deref()).await
+                .map_err(|err| self.map_gmail_error(err))?;
             
             // Convert to EmailMessage objects
             let email_messages: Vec<EmailMessage> = messages.into_iter()
@@ -581,41 +470,12 @@ pub mod server {
         async fn get_email(&self, message_id: String) -> McpResult<String> {
             debug!("get_email called with message_id={}", message_id);
             
-            // Load configuration
-            let config = match Config::from_env() {
-                Ok(config) => config,
-                Err(err) => {
-                    let msg = match err {
-                        ConfigError::MissingEnvVar(var) => format!("Missing environment variable: {}", var),
-                        ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
-            
-            // Create Gmail service
-            let service = match GmailService::new(&config) {
-                Ok(service) => service,
-                Err(err) => {
-                    let msg = match err {
-                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
-                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
+            // Get the Gmail service
+            let service = self.init_gmail_service().await?;
             
             // Get message
-            let message = match service.get_message(&message_id).await {
-                Ok(message) => message,
-                Err(err) => {
-                    let msg = match err {
-                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
-                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
+            let message = service.get_message(&message_id).await
+                .map_err(|err| self.map_gmail_error(err))?;
             
             // Convert to EmailMessage
             let email = EmailMessage::from_gmail_message(message);
@@ -648,41 +508,12 @@ pub mod server {
         async fn list_labels(&self) -> McpResult<String> {
             debug!("list_labels called");
             
-            // Load configuration
-            let config = match Config::from_env() {
-                Ok(config) => config,
-                Err(err) => {
-                    let msg = match err {
-                        ConfigError::MissingEnvVar(var) => format!("Missing environment variable: {}", var),
-                        ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
-            
-            // Create Gmail service
-            let service = match GmailService::new(&config) {
-                Ok(service) => service,
-                Err(err) => {
-                    let msg = match err {
-                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
-                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
+            // Get the Gmail service
+            let service = self.init_gmail_service().await?;
             
             // Get labels
-            match service.list_labels().await {
-                Ok(json) => Ok(json),
-                Err(err) => {
-                    let msg = match err {
-                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
-                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
-                    };
-                    Err(self.to_mcp_error(&msg))
-                }
-            }
+            service.list_labels().await
+                .map_err(|err| self.map_gmail_error(err))
         }
         
         /// Check connection status with Gmail API
@@ -692,43 +523,15 @@ pub mod server {
         async fn check_connection(&self) -> McpResult<String> {
             debug!("check_connection called");
             
-            // Load configuration
-            let config = match Config::from_env() {
-                Ok(config) => config,
-                Err(err) => {
-                    let msg = match err {
-                        ConfigError::MissingEnvVar(var) => format!("Missing environment variable: {}", var),
-                        ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
-            
-            // Create Gmail service
-            let service = match GmailService::new(&config) {
-                Ok(service) => service,
-                Err(err) => {
-                    let msg = match err {
-                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
-                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
-                    };
-                    return Err(self.to_mcp_error(&msg));
-                }
-            };
+            // Get the Gmail service
+            let service = self.init_gmail_service().await?;
             
             // Check connection
-            match service.check_connection().await {
-                Ok((email, messages_total)) => {
-                    Ok(format!("Connection successful!\nEmail: {}\nTotal messages: {}", email, messages_total))
-                },
-                Err(err) => {
-                    let msg = match err {
-                        GmailServiceError::ApiError(e) => format!("Gmail API error: {}", e),
-                        GmailServiceError::AuthError(e) => format!("Gmail authentication error: {}", e),
-                    };
-                    Err(self.to_mcp_error(&msg))
-                }
-            }
+            let (email, messages_total) = service.check_connection().await
+                .map_err(|err| self.map_gmail_error(err))?;
+                
+            // Format response
+            Ok(format!("Connection successful!\nEmail: {}\nTotal messages: {}", email, messages_total))
         }
     }
 }
