@@ -2,3 +2,4 @@
 .env 
 credentials.json
 *.log
+output.txt
