@@ -11,13 +11,13 @@ echo -e "${BLUE}Building the application...${NC}"
 RUSTFLAGS="-C debuginfo=2" cargo build || { echo "Build failed"; exit 1; }
 
 # Create and start a simple fifo for communication
-FIFO="/tmp/mcp_weather_fifo"
+FIFO="/tmp/mcp_gmailcal_fifo"
 rm -f $FIFO
 mkfifo $FIFO
 
 # Start the MCP server in the background, reading from the FIFO
 echo -e "${GREEN}Starting MCP server...${NC}"
-cat $FIFO | RUST_LOG=trace ./target/debug/mcp-weather > mcp_output.log &
+cat $FIFO | RUST_LOG=trace ./target/debug/mcp-gmailcal > mcp_output.log &
 SERVER_PID=$\!
 
 # Give server time to start

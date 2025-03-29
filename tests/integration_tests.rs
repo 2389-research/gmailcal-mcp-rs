@@ -1,5 +1,5 @@
 /// Integration Test Suite for Gmail MCP Server
-/// 
+///
 /// This file contains integration tests for the Gmail MCP server's commands.
 /// Currently, these are placeholder tests that set up the environment and
 /// document what would need to be tested in a fully mocked implementation.
@@ -19,7 +19,7 @@
 /// - Create custom trait for the Gmail client that can be mocked
 /// - Use `mcp_attr::jsoncall::handle_jsoncall` to test MCP command execution directly
 ///
-use mcp_weather::GmailServer;
+use mcp_gmailcal::GmailServer;
 use std::env;
 use std::sync::Once;
 
@@ -60,7 +60,7 @@ fn test_list_emails_command() {
     // Setup environment and server
     setup();
     let _server = GmailServer::new();
-    
+
     // In a real test:
     // 1. Mock the Gmail API response for messages_list
     // 2. Call the list_emails method
@@ -73,7 +73,7 @@ fn test_get_email_command() {
     // Setup environment and server
     setup();
     let _server = GmailServer::new();
-    
+
     // In a real test:
     // 1. Mock the Gmail API response for messages_get
     // 2. Call the get_email method with a specific message ID
@@ -86,7 +86,7 @@ fn test_search_emails_command() {
     // Setup environment and server
     setup();
     let _server = GmailServer::new();
-    
+
     // In a real test:
     // 1. Mock the Gmail API response for messages_list with query parameter
     // 2. Call the search_emails method with a search query
@@ -99,7 +99,7 @@ fn test_list_labels_command() {
     // Setup environment and server
     setup();
     let _server = GmailServer::new();
-    
+
     // In a real test:
     // 1. Mock the Gmail API response for labels_list
     // 2. Call the list_labels method
@@ -112,7 +112,7 @@ fn test_check_connection_command() {
     // Setup environment and server
     setup();
     let _server = GmailServer::new();
-    
+
     // In a real test:
     // 1. Mock the Gmail API response for get_profile
     // 2. Call the check_connection method
@@ -125,7 +125,7 @@ fn test_error_handling() {
     // Setup environment and server
     setup();
     let _server = GmailServer::new();
-    
+
     // In a real test:
     // 1. Mock the Gmail API to return an error
     // 2. Call one of the MCP methods

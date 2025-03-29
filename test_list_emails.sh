@@ -20,7 +20,7 @@ JSON_REQUEST='{"jsonrpc":"2.0","id":"test-1","method":"tool","params":{"name":"l
 # Run the application with the JSON request
 echo -e "${GREEN}Running list_emails command with max_results=3...${NC}"
 echo -e "${YELLOW}Request:${NC} $JSON_REQUEST"
-echo $JSON_REQUEST | RUST_LOG=trace ./target/debug/mcp-weather
+echo $JSON_REQUEST | RUST_LOG=trace ./target/debug/mcp-gmailcal
 
 # Get the most recent log file
 LOG_FILE=$(ls -t gmail_mcp_*.log 2>/dev/null | head -1)

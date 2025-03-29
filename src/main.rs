@@ -1,6 +1,6 @@
+use log::{debug, error, info, warn, LevelFilter};
 use mcp_attr::server::serve_stdio;
-use mcp_weather::{GmailServer, setup_logging, logging::write_direct_to_log};
-use log::{info, debug, error, warn, LevelFilter};
+use mcp_gmailcal::{logging::write_direct_to_log, setup_logging, GmailServer};
 use std::env;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -25,40 +25,46 @@ fn direct_log(message: &str) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set environment variable to show all log levels
     env::set_var("RUST_LOG", "debug");
-    
+
     println!("Starting Gmail MCP Server...");
-    
+
     // Initialize logging with maximum verbosity
     let log_file = setup_logging(LevelFilter::Trace, None)?;
-    
+
     // Store the log file path for direct logging
     if let Ok(mut path) = LOG_FILE_PATH.lock() {
         *path = log_file.clone();
     }
-    
+
     // Log startup information
     println!("Initialized logging to: {}", log_file);
     direct_log(&format!("Direct logging test - starting application"));
-    
+
     info!("Gmail MCP Server starting...");
     info!("Logs will be saved to {}", log_file);
     debug!("Debug logging enabled");
-    
+
     // Log some system information
-    direct_log(&format!("Current directory: {:?}", std::env::current_dir().unwrap_or_default()));
-    debug!("Environment variables: RUST_LOG={:?}", env::var("RUST_LOG").unwrap_or_default());
-    
+    direct_log(&format!(
+        "Current directory: {:?}",
+        std::env::current_dir().unwrap_or_default()
+    ));
+    debug!(
+        "Environment variables: RUST_LOG={:?}",
+        env::var("RUST_LOG").unwrap_or_default()
+    );
+
     // Start the MCP server
     debug!("Creating GmailServer instance");
     let server = GmailServer::new();
-    
+
     // Log right before starting the server
     info!("Starting MCP server with stdio interface");
     direct_log("About to start MCP server with serve_stdio()");
-    
+
     // Run the server
     let result = serve_stdio(server).await;
-    
+
     // Log the result
     if let Err(ref e) = result {
         let error_msg = format!("Error running MCP server: {}", e);
@@ -68,9 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("MCP server completed successfully");
         direct_log("MCP server completed successfully");
     }
-    
+
     debug!("Exiting application");
     direct_log("Application exit");
-    
+
     result.map_err(|e| e.into())
 }

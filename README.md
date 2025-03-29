@@ -42,7 +42,7 @@ GMAIL_REFRESH_TOKEN=your-refresh-token
 To compile and run the server, execute:
 ```bash
 cargo build --release
-./target/release/mcp-weather
+./target/release/mcp-gmailcal
 ```
 
 ### 5. Configure Claude to Use the MCP Server
