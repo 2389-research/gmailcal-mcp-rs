@@ -338,19 +338,8 @@ pub mod logging {
     }
 }
 
-// Custom Gmail message handling module
-pub mod gmail_custom {
-    use log::debug;
-    
-    // This module used to contain custom deserialization and recovery logic
-    // We've simplified to use the standard gmail-rs API directly
-    // This stub remains in case we need to add basic helpers in the future
-    
-    // Initialize module for compatibility
-    pub fn init() {
-        debug!("Initialized gmail_custom module (simplified)");
-    }
-}
+// The gmail_custom module has been removed as part of simplification
+// We now use the standard gmail-rs API directly without custom processing
 
 // Module with the server implementation
 pub mod server {    
