@@ -20,7 +20,7 @@
 // Re-export key types for use in tests
 pub use crate::server::GmailServer;
 pub use crate::config::Config;
-pub use crate::models::EmailMessage;
+pub use crate::gmail_service::EmailMessage;
 pub use crate::logging::setup_logging;
 
 // Module for centralized configuration
@@ -79,12 +79,16 @@ pub mod config {
     }
 }
 
-// Module for data models
-pub mod models {
-    use serde::{Serialize, Deserialize};
+// Gmail service module
+pub mod gmail_service {
+    use gmail::GmailClient;
     use gmail::model::Message;
-    use log::debug;
-
+    use log::{debug, error};
+    use thiserror::Error;
+    use serde::{Serialize, Deserialize};
+    use crate::config::Config;
+    
+    // Email message model
     #[derive(Serialize, Deserialize, Debug, Clone)]
     pub struct EmailMessage {
         pub id: String,
@@ -147,16 +151,8 @@ pub mod models {
             }
         }
     }
-}
-
-// Gmail service module
-pub mod gmail_service {
-    use gmail::GmailClient;
-    use gmail::model::Message;
-    use log::{debug, error};
-    use thiserror::Error;
-    use crate::config::Config;
     
+    // Gmail service error types
     #[derive(Debug, Error)]
     pub enum GmailServiceError {
         #[error("Gmail API error: {0}")]
@@ -349,8 +345,7 @@ pub mod server {
     use log::{info, debug, error};
     
     use crate::config::{Config, ConfigError};
-    use crate::gmail_service::{GmailService, GmailServiceError};
-    use crate::models::EmailMessage;
+    use crate::gmail_service::{GmailService, GmailServiceError, EmailMessage};
     
     // MCP server for accessing Gmail API
     #[derive(Clone)]
