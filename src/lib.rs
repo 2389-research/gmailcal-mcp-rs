@@ -199,76 +199,41 @@ pub mod gmail_service {
                     Ok(message)
                 },
                 Err(e) => {
-                    error!("API error: {}", e);
+                    // Log more detailed error info to help diagnose issues
+                    error!("API error in get_message: {}", e);
+                    error!("Error type: {:?}", e);
                     
-                    // Log error details for debugging
-                    if e.to_string().contains("missing field") {
-                        error!("Missing field detected in API response. Field might not be present in the raw data.");
-                    }
+                    // Broaden the error catching - any deserialization error might be a field issue
+                    // not just ones with the exact text "missing field"
+                    debug!("Assuming potential JSON format issue, trying fallback approaches");
                     
-                    // If there's a missing field error, try with minimal format
-                    if e.to_string().contains("missing field") || e.to_string().contains("JsonError") {
-                        debug!("Format issue detected: {}. Trying alternate approaches", e);
-                        
-                        // Attempt with "minimal" format (has fewer required fields)
-                        debug!("Trying with minimal format");
-                        match self.client.messages_get(message_id, "me").format("minimal").await {
-                            Ok(mut minimal_msg) => {
-                                debug!("Retrieved message with minimal format");
-                                debug!("Minimal message internal_date: '{}'", minimal_msg.internal_date);
-                                
-                                // Add internalDate field manually if it's empty
-                                if minimal_msg.internal_date.is_empty() {
-                                    warn!("internalDate is empty in minimal format, setting default");
-                                    minimal_msg.internal_date = "0".to_string();
-                                }
-                                
-                                // Try to get metadata for important headers
-                                debug!("Trying to get additional metadata for headers");
-                                match self.client.messages_get(message_id, "me")
-                                    .format("metadata")
-                                    .metadata_headers(&["Subject", "From", "To", "Date"])
-                                    .await 
-                                {
-                                    Ok(metadata_msg) => {
-                                        // Copy headers from metadata to minimal message
-                                        minimal_msg.payload.headers = metadata_msg.payload.headers;
-                                        debug!("Successfully merged metadata with minimal message");
-                                        debug!("Headers count after merge: {}", minimal_msg.payload.headers.len());
-                                    },
-                                    Err(header_err) => {
-                                        debug!("Failed to retrieve metadata: {}", header_err);
-                                    }
-                                }
-                                
-                                debug!("Returning message after recovery attempts");
-                                Ok(minimal_msg)
-                            },
-                            Err(minimal_err) => {
-                                error!("Minimal format also failed: {}", minimal_err);
-                                
-                                // Provide a more detailed error message for debugging
-                                let detailed_error = format!(
-                                    "Gmail API message format error: Unable to retrieve message with ID {}. \
-                                    The API response is missing required fields and all recovery attempts failed. \
-                                    Original error: {}. Minimal format error: {}", 
-                                    message_id, e, minimal_err
-                                );
-                                
-                                // Log the detailed error
-                                error!("{}", detailed_error);
-                                
-                                // Return a more user-friendly error
-                                Err(GmailServiceError::ApiError(
-                                    "The Gmail API returned a message with missing required fields. \
-                                    This might be due to an issue with the specific message format or \
-                                    API limitations. Please try a different message ID.".to_string()
-                                ))
-                            }
+                    // Try with fallback function that handles missing fields more gracefully
+                    match self.try_direct_message_retrieval(message_id).await {
+                        Ok(msg) => {
+                            debug!("Successfully retrieved message using fallback approach");
+                            Ok(msg)
+                        },
+                        Err(fallback_err) => {
+                            error!("All message retrieval approaches failed: {} and {}", e, fallback_err);
+                            
+                            // Provide a more detailed error message for debugging
+                            let detailed_error = format!(
+                                "Gmail API message format error: Unable to retrieve message with ID {}. \
+                                The API response is missing required fields and all recovery attempts failed. \
+                                Original error: {}. Fallback error: {}", 
+                                message_id, e, fallback_err
+                            );
+                            
+                            // Log the detailed error
+                            error!("{}", detailed_error);
+                            
+                            // Return a more user-friendly error
+                            Err(GmailServiceError::ApiError(
+                                "The Gmail API returned a message with missing required fields. \
+                                This might be due to an issue with the specific message format or \
+                                API limitations. Please try a different message ID.".to_string()
+                            ))
                         }
-                    } else {
-                        // Not a JSON issue, propagate the error
-                        Err(GmailServiceError::ApiError(e.to_string()))
                     }
                 }
             }
@@ -314,7 +279,20 @@ pub mod gmail_service {
                         },
                         Err(e) => {
                             error!("Failed to get message {}: {}", msg_ref.id, e);
-                            // Continue with other messages instead of failing completely
+                            
+                            // Try direct raw message retrieval with custom deserializer as last resort
+                            debug!("Attempting direct raw message retrieval with custom deserializer for {}", msg_ref.id);
+                            match self.try_direct_message_retrieval(&msg_ref.id).await {
+                                Ok(message) => {
+                                    debug!("Successfully retrieved message {} using custom deserializer", msg_ref.id);
+                                    messages.push(message);
+                                },
+                                Err(fallback_err) => {
+                                    error!("All retrieval methods failed for message {}: {} and {}", 
+                                           msg_ref.id, e, fallback_err);
+                                    // Continue with other messages instead of failing completely
+                                }
+                            }
                         },
                     }
                 }
@@ -324,6 +302,53 @@ pub mod gmail_service {
             } else {
                 debug!("No messages found in API response");
                 Ok(Vec::new())
+            }
+        }
+        
+        // Last resort method that directly retrieves message with fallback options
+        async fn try_direct_message_retrieval(&self, message_id: &str) -> Result<Message> {
+            debug!("Attempting direct message retrieval with fallback options for ID: {}", message_id);
+            
+            // Try getting message with minimal format first
+            debug!("Trying minimal format");
+            let minimal_result = self.client.messages_get(message_id, "me").format("minimal").await;
+            
+            if let Ok(mut minimal_msg) = minimal_result {
+                debug!("Successfully retrieved message with minimal format");
+                
+                // Ensure internalDate exists (this was the problematic field)
+                if minimal_msg.internal_date.is_empty() {
+                    debug!("internalDate is empty, setting default value");
+                    minimal_msg.internal_date = "0".to_string();
+                }
+                
+                // Try to get metadata for headers 
+                debug!("Attempting to add headers via metadata request");
+                match self.client.messages_get(message_id, "me")
+                    .format("metadata")
+                    .metadata_headers(&["Subject", "From", "To", "Date"])
+                    .await 
+                {
+                    Ok(metadata_msg) => {
+                        debug!("Successfully retrieved metadata with {} headers", 
+                               metadata_msg.payload.headers.len());
+                        
+                        // Update headers from metadata
+                        minimal_msg.payload.headers = metadata_msg.payload.headers;
+                    },
+                    Err(e) => {
+                        debug!("Failed to get metadata headers: {}", e);
+                    }
+                }
+                
+                Ok(minimal_msg)
+            } else {
+                // If minimal format fails, return the error
+                error!("All retrieval approaches failed for message {}", message_id);
+                Err(GmailServiceError::ApiError(format!(
+                    "Could not retrieve message {} with any format", 
+                    message_id
+                )))
             }
         }
         
