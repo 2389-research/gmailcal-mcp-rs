@@ -22,6 +22,7 @@ pub use crate::server::GmailServer;
 pub use crate::config::Config;
 pub use crate::gmail_service::EmailMessage;
 pub use crate::logging::setup_logging;
+pub use crate::gmail_custom::deserialize_custom_message;
 
 // Module for centralized configuration
 pub mod config {
@@ -83,7 +84,7 @@ pub mod config {
 pub mod gmail_service {
     use gmail::GmailClient;
     use gmail::model::Message;
-    use log::{debug, error};
+    use log::{debug, error, info, warn};
     use thiserror::Error;
     use serde::{Serialize, Deserialize};
     use crate::config::Config;
@@ -177,10 +178,100 @@ pub mod gmail_service {
         
         pub async fn get_message(&self, message_id: &str) -> Result<Message> {
             debug!("Getting message with ID: {}", message_id);
-            self.client.messages_get(message_id, "me")
-                .format("full")
-                .await
-                .map_err(|e| GmailServiceError::ApiError(e.to_string()))
+            
+            // Look at the details of the API request
+            let request_details = format!(
+                "Request details: User ID: 'me', Message ID: '{}', Format: 'full'",
+                message_id
+            );
+            log::info!("{}", request_details);
+            
+            // Try with "full" format first
+            let result = self.client.messages_get(message_id, "me").format("full").await;
+            
+            match result {
+                Ok(message) => {
+                    debug!("Successfully retrieved message with standard approach");
+                    debug!("Message ID: {}, Thread ID: {}", message.id, message.thread_id);
+                    debug!("Has internalDate: {}", !message.internal_date.is_empty());
+                    debug!("Labels count: {}", message.label_ids.len());
+                    debug!("Headers count: {}", message.payload.headers.len());
+                    Ok(message)
+                },
+                Err(e) => {
+                    error!("API error: {}", e);
+                    
+                    // Log error details for debugging
+                    if e.to_string().contains("missing field") {
+                        error!("Missing field detected in API response. Field might not be present in the raw data.");
+                    }
+                    
+                    // If there's a missing field error, try with minimal format
+                    if e.to_string().contains("missing field") || e.to_string().contains("JsonError") {
+                        debug!("Format issue detected: {}. Trying alternate approaches", e);
+                        
+                        // Attempt with "minimal" format (has fewer required fields)
+                        debug!("Trying with minimal format");
+                        match self.client.messages_get(message_id, "me").format("minimal").await {
+                            Ok(mut minimal_msg) => {
+                                debug!("Retrieved message with minimal format");
+                                debug!("Minimal message internal_date: '{}'", minimal_msg.internal_date);
+                                
+                                // Add internalDate field manually if it's empty
+                                if minimal_msg.internal_date.is_empty() {
+                                    warn!("internalDate is empty in minimal format, setting default");
+                                    minimal_msg.internal_date = "0".to_string();
+                                }
+                                
+                                // Try to get metadata for important headers
+                                debug!("Trying to get additional metadata for headers");
+                                match self.client.messages_get(message_id, "me")
+                                    .format("metadata")
+                                    .metadata_headers(&["Subject", "From", "To", "Date"])
+                                    .await 
+                                {
+                                    Ok(metadata_msg) => {
+                                        // Copy headers from metadata to minimal message
+                                        minimal_msg.payload.headers = metadata_msg.payload.headers;
+                                        debug!("Successfully merged metadata with minimal message");
+                                        debug!("Headers count after merge: {}", minimal_msg.payload.headers.len());
+                                    },
+                                    Err(header_err) => {
+                                        debug!("Failed to retrieve metadata: {}", header_err);
+                                    }
+                                }
+                                
+                                debug!("Returning message after recovery attempts");
+                                Ok(minimal_msg)
+                            },
+                            Err(minimal_err) => {
+                                error!("Minimal format also failed: {}", minimal_err);
+                                
+                                // Provide a more detailed error message for debugging
+                                let detailed_error = format!(
+                                    "Gmail API message format error: Unable to retrieve message with ID {}. \
+                                    The API response is missing required fields and all recovery attempts failed. \
+                                    Original error: {}. Minimal format error: {}", 
+                                    message_id, e, minimal_err
+                                );
+                                
+                                // Log the detailed error
+                                error!("{}", detailed_error);
+                                
+                                // Return a more user-friendly error
+                                Err(GmailServiceError::ApiError(
+                                    "The Gmail API returned a message with missing required fields. \
+                                    This might be due to an issue with the specific message format or \
+                                    API limitations. Please try a different message ID.".to_string()
+                                ))
+                            }
+                        }
+                    } else {
+                        // Not a JSON issue, propagate the error
+                        Err(GmailServiceError::ApiError(e.to_string()))
+                    }
+                }
+            }
         }
         
         pub async fn list_messages(&self, max_results: u32, query: Option<&str>) -> Result<Vec<Message>> {
@@ -191,29 +282,47 @@ pub mod gmail_service {
             request = request.max_results(max_results.into());
             
             if let Some(q) = query {
+                debug!("Using query: {}", q);
                 request = request.q(q);
             }
             
             // Execute the request
+            debug!("Executing messages.list request");
             let response = request.await
-                .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
+                .map_err(|e| {
+                    error!("Failed to list messages: {}", e);
+                    GmailServiceError::ApiError(e.to_string())
+                })?;
                 
             // Check if we have messages
             if let Some(message_refs) = response.messages {
-                debug!("Found {} message references", message_refs.len());
+                let count = message_refs.len();
+                info!("Found {} message references", count);
+                
+                if count == 0 {
+                    return Ok(Vec::new());
+                }
                 
                 // Fetch each message
-                let mut messages = Vec::with_capacity(message_refs.len());
-                for msg_ref in message_refs {
+                let mut messages = Vec::with_capacity(count);
+                for (idx, msg_ref) in message_refs.iter().enumerate() {
+                    info!("Fetching message {}/{}: ID {}", idx + 1, count, msg_ref.id);
                     match self.get_message(&msg_ref.id).await {
-                        Ok(message) => messages.push(message),
-                        Err(e) => error!("Failed to get message {}: {}", msg_ref.id, e),
+                        Ok(message) => {
+                            debug!("Successfully fetched message {}", msg_ref.id);
+                            messages.push(message);
+                        },
+                        Err(e) => {
+                            error!("Failed to get message {}: {}", msg_ref.id, e);
+                            // Continue with other messages instead of failing completely
+                        },
                     }
                 }
                 
+                info!("Successfully fetched {}/{} messages", messages.len(), count);
                 Ok(messages)
             } else {
-                debug!("No messages found");
+                debug!("No messages found in API response");
                 Ok(Vec::new())
             }
         }
@@ -334,8 +443,73 @@ pub mod logging {
     }
 }
 
-// The gmail_custom module has been removed as part of simplification
-// We now use the standard gmail-rs API directly without custom processing
+// Custom Gmail message handling module to handle API response issues
+pub mod gmail_custom {
+    use log::{debug, warn};
+    use gmail::model::Message;
+    use serde_json::Value;
+    
+    /// Custom message deserializer to handle missing fields in Gmail API responses
+    /// This function attempts to deserialize a JSON response into a Message struct,
+    /// filling in missing fields with default values
+    pub fn deserialize_custom_message(json_str: &String) -> Result<Message, serde_json::Error> {
+        debug!("Deserializing custom message from JSON");
+        
+        // First, parse the JSON into a generic Value
+        let mut json_value: Value = serde_json::from_str(json_str)?;
+        
+        // Check if it's an object
+        if let Value::Object(ref mut map) = json_value {
+            // Check for required fields and add defaults if missing
+            
+            // Handle internalDate (required as String in gmail-rs)
+            if !map.contains_key("internalDate") {
+                debug!("Adding missing internalDate field with default value");
+                map.insert("internalDate".to_string(), Value::String("0".to_string()));
+                warn!("Added default internalDate to message: '0'");
+            }
+            
+            // Handle label_ids (required as Vec<String> in gmail-rs)
+            if !map.contains_key("labelIds") {
+                debug!("Adding missing labelIds field with empty array");
+                map.insert("labelIds".to_string(), Value::Array(vec![]));
+                warn!("Added empty labelIds array to message");
+            }
+            
+            // Add other required fields with sensible defaults if needed
+            if !map.contains_key("snippet") {
+                debug!("Adding missing snippet field with empty string");
+                map.insert("snippet".to_string(), Value::String("".to_string()));
+            }
+            
+            // Ensure payload exists
+            if !map.contains_key("payload") {
+                debug!("Adding missing payload field with default structure");
+                let mut payload = serde_json::Map::new();
+                
+                // Add headers with empty array
+                payload.insert("headers".to_string(), Value::Array(vec![]));
+                
+                // Add payload to the message
+                map.insert("payload".to_string(), Value::Object(payload));
+                warn!("Added default payload structure to message");
+            } else if let Value::Object(ref mut payload) = map["payload"] {
+                // Ensure headers exist in payload
+                if !payload.contains_key("headers") {
+                    debug!("Adding missing headers field to payload");
+                    payload.insert("headers".to_string(), Value::Array(vec![]));
+                    warn!("Added empty headers array to message payload");
+                }
+            }
+        }
+        
+        // Now try to deserialize the patched JSON
+        let message = serde_json::from_value::<Message>(json_value)?;
+        debug!("Successfully deserialized message with ID: {}", message.id);
+        
+        Ok(message)
+    }
+}
 
 // Module with the server implementation
 pub mod server {    
@@ -388,7 +562,7 @@ pub mod server {
         }
     }
     
-    // MCP server implementation
+    // MCP server implementation with custom serialization
     #[mcp_server]
     impl McpServer for GmailServer {
         /// Gmail MCP Server
@@ -410,15 +584,54 @@ pub mod server {
         /// Returns a JSON array of email messages from the user's inbox.
         /// 
         /// Args:
-        ///   max_results: Optional maximum number of results to return (default: 10)
+        ///   max_results: Optional maximum number of results to return (default: 10). Can be a number (3) or a string ("3").
         ///   query: Optional Gmail search query string (e.g. "is:unread from:example.com")
         #[tool]
-        async fn list_emails(&self, max_results: Option<u32>, query: Option<String>) -> McpResult<String> {
+        async fn list_emails(
+            &self, 
+            max_results: Option<serde_json::Value>, 
+            query: Option<String>
+        ) -> McpResult<String> {
             info!("=== START list_emails MCP command ===");
             debug!("list_emails called with max_results={:?}, query={:?}", max_results, query);
             
-            // Process parameters
-            let max = max_results.unwrap_or(10);
+            // Convert max_results from string or number to u32
+            let max = match max_results {
+                Some(val) => {
+                    match val {
+                        serde_json::Value::Number(num) => {
+                            // Handle number input
+                            if let Some(n) = num.as_u64() {
+                                // Ensure it fits in u32
+                                if n <= u32::MAX as u64 {
+                                    Some(n as u32)
+                                } else {
+                                    debug!("Number too large for u32, using default");
+                                    None
+                                }
+                            } else {
+                                debug!("Number not convertible to u32, using default");
+                                None
+                            }
+                        },
+                        serde_json::Value::String(s) => {
+                            // Handle string input
+                            match s.parse::<u32>() {
+                                Ok(n) => Some(n),
+                                Err(_) => {
+                                    debug!("Could not parse string '{}' as u32, using default", s);
+                                    None
+                                }
+                            }
+                        },
+                        _ => {
+                            debug!("Unexpected value type for max_results: {:?}, using default", val);
+                            None
+                        }
+                    }
+                },
+                None => None,
+            }.unwrap_or(10);
             
             // Get the Gmail service
             let service = self.init_gmail_service().await?;
@@ -478,11 +691,53 @@ pub mod server {
         /// 
         /// Args:
         ///   query: Gmail search query string (e.g. "is:unread from:example.com")
-        ///   max_results: Optional maximum number of results (default: 10)
+        ///   max_results: Optional maximum number of results (default: 10). Can be a number (3) or a string ("3").
         #[tool]
-        async fn search_emails(&self, query: String, max_results: Option<u32>) -> McpResult<String> {
+        async fn search_emails(
+            &self, 
+            query: String, 
+            max_results: Option<serde_json::Value>
+        ) -> McpResult<String> {
+            // Convert max_results from JSON value to Option<u32> for proper parameter passing
+            let max_value = match max_results {
+                Some(val) => {
+                    match val {
+                        serde_json::Value::Number(num) => {
+                            // Handle number input
+                            if let Some(n) = num.as_u64() {
+                                // Ensure it fits in u32
+                                if n <= u32::MAX as u64 {
+                                    Some(serde_json::Value::Number(serde_json::Number::from(n)))
+                                } else {
+                                    debug!("Number too large for u32, using default");
+                                    None
+                                }
+                            } else {
+                                debug!("Number not convertible to u32, using default");
+                                None
+                            }
+                        },
+                        serde_json::Value::String(s) => {
+                            // Handle string input
+                            match s.parse::<u32>() {
+                                Ok(n) => Some(serde_json::Value::Number(serde_json::Number::from(n))),
+                                Err(_) => {
+                                    debug!("Could not parse string '{}' as u32, using default", s);
+                                    None
+                                }
+                            }
+                        },
+                        _ => {
+                            debug!("Unexpected value type for max_results: {:?}, using default", val);
+                            None
+                        }
+                    }
+                },
+                None => None,
+            };
+            
             // This is essentially the same as list_emails but with a required query parameter
-            self.list_emails(max_results, Some(query)).await
+            self.list_emails(max_value, Some(query)).await
         }
         
         /// Get a list of email labels
