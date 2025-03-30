@@ -380,7 +380,7 @@ pub mod gmail_service {
             }
         }
 
-        /// Return the raw JSON response from Gmail API without coercing into Rust structs
+        /// Return the raw JSON response from Gmail API without any transformation or modification
         pub async fn list_messages_raw(&self, max_results: u32, query: Option<&str>) -> Result<String> {
             debug!("Listing raw messages with max_results={}, query={:?}", max_results, query);
             
@@ -400,7 +400,7 @@ pub mod gmail_service {
                 GmailServiceError::ApiError(e.to_string())
             })?;
             
-            // Convert response to raw JSON string
+            // Convert directly to JSON string without any processing or transformation
             match serde_json::to_string_pretty(&response) {
                 Ok(json) => Ok(json),
                 Err(e) => Err(GmailServiceError::ApiError(format!(
@@ -610,20 +610,35 @@ pub mod gmail_service {
                 .labels_list("me")
                 .await
                 .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
-
-            if let Some(labels) = response.labels {
-                match serde_json::to_string_pretty(&labels) {
-                    Ok(json) => Ok(json),
-                    Err(e) => Err(GmailServiceError::ApiError(format!(
-                        "JSON serialization error: {}",
-                        e
-                    ))),
-                }
-            } else {
-                Ok("[]".to_string())
+            
+            // Convert response to raw JSON string
+            match serde_json::to_string_pretty(&response) {
+                Ok(json) => Ok(json),
+                Err(e) => Err(GmailServiceError::ApiError(format!(
+                    "JSON serialization error: {}",
+                    e
+                )))
             }
         }
 
+        pub async fn check_connection_raw(&self) -> Result<String> {
+            debug!("Checking connection raw");
+            let profile = self
+                .client
+                .get_profile("me")
+                .await
+                .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
+            
+            // Convert response to raw JSON string
+            match serde_json::to_string_pretty(&profile) {
+                Ok(json) => Ok(json),
+                Err(e) => Err(GmailServiceError::ApiError(format!(
+                    "JSON serialization error: {}",
+                    e
+                )))
+            }
+        }
+        
         pub async fn check_connection(&self) -> Result<(String, u64)> {
             debug!("Checking connection");
             let profile = self
@@ -1041,9 +1056,6 @@ pub mod server {
         /// API errors from Gmail
         pub const API_ERROR: u32 = 1003;
         
-        /// General serialization/JSON errors
-        pub const SERIALIZATION_ERROR: u32 = 1004;
-        
         /// Message format/missing field errors
         pub const MESSAGE_FORMAT_ERROR: u32 = 1005;
         
@@ -1124,7 +1136,7 @@ pub mod server {
 
         /// Get a list of emails from the inbox
         ///
-        /// Returns a JSON array of email messages from the user's inbox.
+        /// Returns the raw JSON response from the Gmail API without any transformation.
         ///
         /// Args:
         ///   max_results: Optional maximum number of results to return (default: 10). Can be a number (3) or a string ("3").
@@ -1147,7 +1159,7 @@ pub mod server {
             // Get the Gmail service
             let service = self.init_gmail_service().await?;
 
-            // Get raw message list JSON
+            // Get raw message list JSON directly from the API without transformation
             let messages_json = service
                 .list_messages_raw(max, query.as_deref())
                 .await
@@ -1234,22 +1246,20 @@ pub mod server {
         /// Tests the connection to Gmail API by retrieving the user's profile
         #[tool]
         async fn check_connection(&self) -> McpResult<String> {
+            info!("=== START check_connection MCP command ===");
             debug!("check_connection called");
 
             // Get the Gmail service
             let service = self.init_gmail_service().await?;
 
-            // Check connection
-            let (email, messages_total) = service
-                .check_connection()
+            // Get profile as raw JSON
+            let profile_json = service
+                .check_connection_raw()
                 .await
                 .map_err(|err| self.map_gmail_error(err))?;
 
-            // Format response
-            Ok(format!(
-                "Connection successful!\nEmail: {}\nTotal messages: {}",
-                email, messages_total
-            ))
+            info!("=== END check_connection MCP command (success) ===");
+            Ok(profile_json)
         }
     }
 }
