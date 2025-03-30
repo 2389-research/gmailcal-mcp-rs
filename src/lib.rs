@@ -186,6 +186,9 @@ pub mod gmail_service {
             );
             log::info!("{}", request_details);
             
+            // Import the MessageExt trait
+            use crate::gmail_custom::MessageExt;
+            
             // Try with "full" format first
             let result = self.client.messages_get(message_id, "me").format("full").await;
             
@@ -196,43 +199,77 @@ pub mod gmail_service {
                     debug!("Has internalDate: {}", !message.internal_date.is_empty());
                     debug!("Labels count: {}", message.label_ids.len());
                     debug!("Headers count: {}", message.payload.headers.len());
+                    
+                    // Ensure all required fields have values
+                    let message = message.ensure_required_fields();
                     Ok(message)
                 },
                 Err(e) => {
-                    // Log more detailed error info to help diagnose issues
-                    error!("API error in get_message: {}", e);
-                    error!("Error type: {:?}", e);
+                    // Check if this is a deserialization error related to missing fields
+                    let error_str = e.to_string();
+                    let is_missing_field = error_str.contains("missing field") || 
+                                         error_str.contains("unknown field") ||
+                                         error_str.contains("missing key") ||
+                                         error_str.contains("expected value");
                     
-                    // Broaden the error catching - any deserialization error might be a field issue
-                    // not just ones with the exact text "missing field"
-                    debug!("Assuming potential JSON format issue, trying fallback approaches");
-                    
-                    // Try with fallback function that handles missing fields more gracefully
-                    match self.try_direct_message_retrieval(message_id).await {
-                        Ok(msg) => {
-                            debug!("Successfully retrieved message using fallback approach");
-                            Ok(msg)
-                        },
-                        Err(fallback_err) => {
-                            error!("All message retrieval approaches failed: {} and {}", e, fallback_err);
-                            
-                            // Provide a more detailed error message for debugging
-                            let detailed_error = format!(
-                                "Gmail API message format error: Unable to retrieve message with ID {}. \
-                                The API response is missing required fields and all recovery attempts failed. \
-                                Original error: {}. Fallback error: {}", 
-                                message_id, e, fallback_err
-                            );
-                            
-                            // Log the detailed error
-                            error!("{}", detailed_error);
-                            
-                            // Return a more user-friendly error
-                            Err(GmailServiceError::ApiError(
-                                "The Gmail API returned a message with missing required fields. \
-                                This might be due to an issue with the specific message format or \
-                                API limitations. Please try a different message ID.".to_string()
-                            ))
+                    if is_missing_field {
+                        // Log detailed info for debugging
+                        debug!("Detected missing field error: {}", error_str);
+                        info!("Using custom message retrieval for message {} due to missing field", message_id);
+                        
+                        // Try with our custom retrieval that handles missing fields
+                        match self.try_direct_message_retrieval(message_id).await {
+                            Ok(msg) => {
+                                debug!("Successfully retrieved message using custom approach");
+                                Ok(msg.ensure_required_fields())
+                            },
+                            Err(fallback_err) => {
+                                error!("Custom message retrieval failed: {}", fallback_err);
+                                
+                                // Last resort - try with minimal format and patch the message
+                                match self.try_minimal_format(message_id).await {
+                                    Ok(msg) => {
+                                        debug!("Successfully retrieved message using minimal format");
+                                        Ok(msg.ensure_required_fields())
+                                    },
+                                    Err(e) => {
+                                        error!("All retrieval methods failed");
+                                        Err(e)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // This is not a missing field error, might be another API issue
+                        error!("Non-deserialization API error: {}", e);
+                        
+                        // Still try fallback as a last resort
+                        match self.try_direct_message_retrieval(message_id).await {
+                            Ok(msg) => {
+                                debug!("Successfully retrieved message using fallback approach");
+                                Ok(msg.ensure_required_fields())
+                            },
+                            Err(fallback_err) => {
+                                error!("All message retrieval approaches failed: {} and {}", e, fallback_err);
+                                
+                                // Provide a more detailed error message for debugging
+                                let detailed_error = format!(
+                                    "Gmail API message format error: Unable to retrieve message with ID {}. \
+                                    The API response is missing required fields and all recovery attempts failed. \
+                                    Original error: {}. Fallback error: {}", 
+                                    message_id, e, fallback_err
+                                );
+                                
+                                // Log the detailed error
+                                error!("{}", detailed_error);
+                                
+                                // Return a more user-friendly error
+                                Err(GmailServiceError::ApiError(
+                                    "The Gmail API returned a message with missing required fields. \
+                                    This might be due to an issue with the specific message format or \
+                                    API limitations. Please try a different message ID.".to_string()
+                                ))
+                            }
                         }
                     }
                 }
@@ -272,26 +309,46 @@ pub mod gmail_service {
                 let mut messages = Vec::with_capacity(count);
                 for (idx, msg_ref) in message_refs.iter().enumerate() {
                     info!("Fetching message {}/{}: ID {}", idx + 1, count, msg_ref.id);
+                    // Import the MessageExt trait
+                    use crate::gmail_custom::MessageExt;
+                    
                     match self.get_message(&msg_ref.id).await {
                         Ok(message) => {
                             debug!("Successfully fetched message {}", msg_ref.id);
-                            messages.push(message);
+                            // Ensure required fields are set before adding to list
+                            messages.push(message.ensure_required_fields());
                         },
                         Err(e) => {
                             error!("Failed to get message {}: {}", msg_ref.id, e);
                             
-                            // Try direct raw message retrieval with custom deserializer as last resort
-                            debug!("Attempting direct raw message retrieval with custom deserializer for {}", msg_ref.id);
-                            match self.try_direct_message_retrieval(&msg_ref.id).await {
-                                Ok(message) => {
-                                    debug!("Successfully retrieved message {} using custom deserializer", msg_ref.id);
-                                    messages.push(message);
-                                },
-                                Err(fallback_err) => {
-                                    error!("All retrieval methods failed for message {}: {} and {}", 
-                                           msg_ref.id, e, fallback_err);
-                                    // Continue with other messages instead of failing completely
+                            // Check if this is a missing field error
+                            let error_str = e.to_string();
+                            let is_missing_field = error_str.contains("missing field") || 
+                                                error_str.contains("internalDate") ||
+                                                error_str.contains("unknown field") ||
+                                                error_str.contains("missing key");
+                            
+                            if is_missing_field {
+                                // Try direct raw message retrieval with custom deserializer as last resort
+                                debug!("Detected missing field, using custom retrieval for {}", msg_ref.id);
+                                match self.try_direct_message_retrieval(&msg_ref.id).await {
+                                    Ok(message) => {
+                                        debug!("Successfully retrieved message {} using custom deserializer", msg_ref.id);
+                                        // Ensure required fields are set
+                                        messages.push(message.ensure_required_fields());
+                                    },
+                                    Err(fallback_err) => {
+                                        error!("All retrieval methods failed for message {}: {} and {}", 
+                                            msg_ref.id, e, fallback_err);
+                                        
+                                        // Skip this message rather than trying to construct a placeholder
+                                        // The gmail-rs Message struct has fields we can't reconstruct easily
+                                        debug!("Skipping message {} due to retrieval errors", msg_ref.id);
+                                    }
                                 }
+                            } else {
+                                error!("Non-format error retrieving message {}: {}", msg_ref.id, e);
+                                // Continue with other messages instead of failing completely
                             }
                         },
                     }
@@ -309,8 +366,14 @@ pub mod gmail_service {
         async fn try_direct_message_retrieval(&self, message_id: &str) -> Result<Message> {
             debug!("Attempting direct message retrieval with fallback options for ID: {}", message_id);
             
-            // Try getting message with minimal format first
-            debug!("Trying minimal format");
+            // Since we can't directly access the raw JSON, try using minimal format
+            // with minimal fields, which is less likely to have missing field issues
+            self.try_minimal_format(message_id).await
+        }
+        
+        // Helper method to try minimal format as absolute last resort
+        async fn try_minimal_format(&self, message_id: &str) -> Result<Message> {
+            debug!("Falling back to minimal format");
             let minimal_result = self.client.messages_get(message_id, "me").format("minimal").await;
             
             if let Ok(mut minimal_msg) = minimal_result {
@@ -470,9 +533,12 @@ pub mod logging {
 
 // Custom Gmail message handling module to handle API response issues
 pub mod gmail_custom {
-    use log::{debug, warn};
-    use gmail::model::Message;
+    use log::{debug, warn, error};
+    use gmail::model::{Message, MessagePart, Header};
     use serde_json::Value;
+    
+    // Simpler approach - just directly handle the issue in the deserializer
+    // Since we can't reliably access the internal gmail crate functionality
     
     /// Custom message deserializer to handle missing fields in Gmail API responses
     /// This function attempts to deserialize a JSON response into a Message struct,
@@ -483,56 +549,113 @@ pub mod gmail_custom {
         // First, parse the JSON into a generic Value
         let mut json_value: Value = serde_json::from_str(json_str)?;
         
+        debug!("Parsed JSON into Value object, checking for missing fields");
+        
         // Check if it's an object
         if let Value::Object(ref mut map) = json_value {
-            // Check for required fields and add defaults if missing
+            // Extract the message ID for better logging and clone it to avoid borrow issues
+            let message_id = map.get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();  // Clone to avoid borrowing issues
+                
+            debug!("Processing message ID: {}", message_id);
             
             // Handle internalDate (required as String in gmail-rs)
             if !map.contains_key("internalDate") {
-                debug!("Adding missing internalDate field with default value");
+                warn!("Message {} is missing internalDate field, adding default value", message_id);
                 map.insert("internalDate".to_string(), Value::String("0".to_string()));
-                warn!("Added default internalDate to message: '0'");
+            } else if let Value::Null = map["internalDate"] {
+                warn!("Message {} has null internalDate field, replacing with default value", message_id);
+                map.insert("internalDate".to_string(), Value::String("0".to_string()));
             }
             
             // Handle label_ids (required as Vec<String> in gmail-rs)
             if !map.contains_key("labelIds") {
-                debug!("Adding missing labelIds field with empty array");
+                debug!("Adding missing labelIds field with empty array for message {}", message_id);
                 map.insert("labelIds".to_string(), Value::Array(vec![]));
-                warn!("Added empty labelIds array to message");
+            } else if let Value::Null = map["labelIds"] {
+                debug!("labelIds is null for message {}, replacing with empty array", message_id);
+                map.insert("labelIds".to_string(), Value::Array(vec![]));
             }
             
-            // Add other required fields with sensible defaults if needed
-            if !map.contains_key("snippet") {
-                debug!("Adding missing snippet field with empty string");
+            // Add other required fields with sensible defaults
+            if !map.contains_key("snippet") || map["snippet"].is_null() {
+                debug!("Adding missing snippet field with empty string for message {}", message_id);
                 map.insert("snippet".to_string(), Value::String("".to_string()));
             }
             
-            // Ensure payload exists
-            if !map.contains_key("payload") {
-                debug!("Adding missing payload field with default structure");
+            // Check threadId (required as String)
+            if !map.contains_key("threadId") || map["threadId"].is_null() {
+                debug!("Adding missing threadId field with message ID for message {}", message_id);
+                // Use the message ID as threadId if missing
+                map.insert("threadId".to_string(), Value::String(message_id.clone()));
+            }
+            
+            // Ensure payload exists and has necessary structure
+            if !map.contains_key("payload") || map["payload"].is_null() {
+                debug!("Adding missing payload field with default structure for message {}", message_id);
                 let mut payload = serde_json::Map::new();
                 
                 // Add headers with empty array
                 payload.insert("headers".to_string(), Value::Array(vec![]));
+                // Add mimeType (required)
+                payload.insert("mimeType".to_string(), Value::String("text/plain".to_string()));
                 
                 // Add payload to the message
                 map.insert("payload".to_string(), Value::Object(payload));
-                warn!("Added default payload structure to message");
+                warn!("Added default payload structure to message {}", message_id);
             } else if let Value::Object(ref mut payload) = map["payload"] {
                 // Ensure headers exist in payload
-                if !payload.contains_key("headers") {
-                    debug!("Adding missing headers field to payload");
+                if !payload.contains_key("headers") || payload["headers"].is_null() {
+                    debug!("Adding missing headers field to payload for message {}", message_id);
                     payload.insert("headers".to_string(), Value::Array(vec![]));
-                    warn!("Added empty headers array to message payload");
+                }
+                
+                // Ensure mimeType exists
+                if !payload.contains_key("mimeType") || payload["mimeType"].is_null() {
+                    debug!("Adding missing mimeType field to payload for message {}", message_id);
+                    payload.insert("mimeType".to_string(), Value::String("text/plain".to_string()));
                 }
             }
         }
         
         // Now try to deserialize the patched JSON
-        let message = serde_json::from_value::<Message>(json_value)?;
-        debug!("Successfully deserialized message with ID: {}", message.id);
-        
-        Ok(message)
+        match serde_json::from_value::<Message>(json_value.clone()) {
+            Ok(message) => {
+                debug!("Successfully deserialized message with ID: {}", message.id);
+                Ok(message)
+            },
+            Err(e) => {
+                error!("Failed to deserialize message even after patching: {}", e);
+                // For debugging, print the JSON structure after our patches
+                debug!("Patched JSON structure: {}", serde_json::to_string_pretty(&json_value).unwrap_or_default());
+                
+                // We can't manually construct a Message
+                error!("Failed to parse message due to: {}", e);
+                Err(e)
+            }
+        }
+    }
+    
+    /// Extend gmail-rs Message for our needs
+    pub trait MessageExt {
+        /// Add default values to any missing fields in a Message
+        fn ensure_required_fields(self) -> Self;
+    }
+    
+    impl MessageExt for Message {
+        fn ensure_required_fields(mut self) -> Self {
+            // Ensure internalDate is not empty
+            if self.internal_date.is_empty() {
+                debug!("Adding default internal_date for message {}", self.id);
+                self.internal_date = "0".to_string();
+            }
+            
+            // Add more field validations as needed
+            
+            self
+        }
     }
 }
 
