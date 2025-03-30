@@ -265,6 +265,34 @@ pub mod gmail_service {
             }
         }
         
+        /// Create a minimal valid Message with defaults for all required fields
+        fn create_minimal_message(&self, message_id: &str) -> Message {
+            use gmail::model::{Message, MessagePart, MessagePartBody};
+            use crate::gmail_custom::defaults;
+            
+            debug!("Creating minimal message structure with default values for ID: {}", message_id);
+            
+            // Create a minimal valid Message with defaults for all required fields
+            Message {
+                id: message_id.to_string(),
+                thread_id: message_id.to_string(), // Default to using message_id
+                label_ids: Vec::new(),
+                snippet: String::new(),
+                history_id: "0".to_string(),
+                internal_date: defaults::INTERNAL_DATE.to_string(),
+                payload: MessagePart {
+                    part_id: String::new(),
+                    mime_type: defaults::MIME_TYPE.to_string(),
+                    filename: String::new(),
+                    headers: Vec::new(),
+                    body: MessagePartBody::Empty { size: 0 },
+                    parts: Vec::new(),
+                },
+                size_estimate: 0,
+                raw: None,
+            }
+        }
+        
         /// Creates a detailed error when all retrieval methods have failed
         fn handle_all_retrieval_methods_failed(
             &self, 
@@ -287,6 +315,13 @@ pub mod gmail_service {
 
             // Log the detailed error
             error!("{}", detailed_error);
+            
+            // Last resort - create a minimal message with default values
+            if original_error.to_string().contains("internalDate") || 
+               fallback_error.to_string().contains("internalDate") {
+                info!("Using last resort minimal message creation for message with ID: {}", message_id);
+                return Ok(self.create_minimal_message(message_id));
+            }
 
             // Return a more user-friendly error
             Err(GmailServiceError::ApiError(
@@ -311,6 +346,67 @@ pub mod gmail_service {
             match self.get_message_standard_format(message_id).await {
                 Ok(message) => Ok(message),
                 Err(e) => self.handle_retrieval_error(message_id, e).await
+            }
+        }
+        
+        /// Get a message by ID and return as raw JSON instead of a Message struct
+        pub async fn get_message_raw(&self, message_id: &str) -> Result<String> {
+            debug!("Getting raw message with ID: {}", message_id);
+            
+            // Log request details
+            let request_details = format!(
+                "Request details: User ID: 'me', Message ID: '{}', Format: 'full'",
+                message_id
+            );
+            log::info!("{}", request_details);
+            
+            // Execute the request
+            let mut request = self.client.messages_get(message_id, "me");
+            request = request.format("full");
+            
+            // Get the raw response
+            let response = request.await.map_err(|e| {
+                error!("Failed to get message: {}", e);
+                GmailServiceError::ApiError(e.to_string())
+            })?;
+            
+            // Convert to JSON
+            match serde_json::to_string_pretty(&response) {
+                Ok(json) => Ok(json),
+                Err(e) => Err(GmailServiceError::ApiError(format!(
+                    "JSON serialization error: {}",
+                    e
+                )))
+            }
+        }
+
+        /// Return the raw JSON response from Gmail API without coercing into Rust structs
+        pub async fn list_messages_raw(&self, max_results: u32, query: Option<&str>) -> Result<String> {
+            debug!("Listing raw messages with max_results={}, query={:?}", max_results, query);
+            
+            // Set up the request
+            let mut request = self.client.messages_list("me");
+            request = request.max_results(max_results.into());
+            
+            if let Some(q) = query {
+                debug!("Using query: {}", q);
+                request = request.q(q);
+            }
+            
+            // Execute the request
+            debug!("Executing messages.list request");
+            let response = request.await.map_err(|e| {
+                error!("Failed to list messages: {}", e);
+                GmailServiceError::ApiError(e.to_string())
+            })?;
+            
+            // Convert response to raw JSON string
+            match serde_json::to_string_pretty(&response) {
+                Ok(json) => Ok(json),
+                Err(e) => Err(GmailServiceError::ApiError(format!(
+                    "JSON serialization error: {}",
+                    e
+                )))
             }
         }
 
@@ -339,6 +435,21 @@ pub mod gmail_service {
                 error!("Failed to list messages: {}", e);
                 GmailServiceError::ApiError(e.to_string())
             })?;
+            
+            // Add debug logging to see raw response
+            if let Ok(json_str) = serde_json::to_string_pretty(&response) {
+                let preview = if json_str.len() > 500 {
+                    format!("{}{}", json_str.chars().take(500).collect::<String>(), "...")
+                } else {
+                    json_str.clone()
+                };
+                debug!("Raw response from Gmail API: {}", preview);
+                
+                // Explicitly check for internalDate field in the response
+                if !json_str.contains("internalDate") {
+                    debug!("internalDate field not found in the API response - will need patching");
+                }
+            }
 
             // Check if we have messages
             if let Some(message_refs) = response.messages {
@@ -388,12 +499,15 @@ pub mod gmail_service {
                                         error!("All retrieval methods failed for message {}: {} and {}", 
                                             msg_ref.id, e, fallback_err);
 
-                                        // Skip this message rather than trying to construct a placeholder
-                                        // The gmail-rs Message struct has fields we can't reconstruct easily
-                                        debug!(
-                                            "Skipping message {} due to retrieval errors",
-                                            msg_ref.id
-                                        );
+                                        // If the error specifically mentions internalDate, use our last resort placeholder
+                                        if e.to_string().contains("internalDate") || 
+                                           fallback_err.to_string().contains("internalDate") {
+                                            debug!("Using minimal message placeholder for {} due to internalDate error", msg_ref.id);
+                                            messages.push(self.create_minimal_message(&msg_ref.id).ensure_required_fields());
+                                        } else {
+                                            // Skip this message for non-internalDate related errors
+                                            debug!("Skipping message {} due to retrieval errors", msg_ref.id);
+                                        }
                                     }
                                 }
                             } else {
@@ -638,19 +752,30 @@ pub mod gmail_custom {
     // JSON patching module - pure functions for fixing missing fields
     mod json_patch {
         use super::defaults;
+        use log::debug;
         use serde_json::{Map, Value};
         
         /// Patch a missing or null internalDate field
-        pub fn ensure_internal_date(json_obj: &mut Map<String, Value>, _message_id: &str) -> bool {
+        pub fn ensure_internal_date(json_obj: &mut Map<String, Value>, message_id: &str) -> bool {
+            let mut modified = false;
+            
+            // Check at root level
             if !json_obj.contains_key("internalDate") || json_obj["internalDate"].is_null() {
+                debug!("Adding internalDate at root level for message {}", message_id);
                 json_obj.insert(
                     "internalDate".to_string(), 
                     Value::String(defaults::INTERNAL_DATE.to_string())
                 );
-                true
-            } else {
-                false
+                modified = true;
             }
+            
+            // Also log the structure to diagnose
+            if modified {
+                debug!("JSON structure after patching: {}", 
+                       serde_json::to_string_pretty(json_obj).unwrap_or_default().chars().take(500).collect::<String>());
+            }
+            
+            modified
         }
         
         /// Patch a missing or null labelIds field
@@ -759,14 +884,31 @@ pub mod gmail_custom {
     /// This function attempts to deserialize a JSON response into a Message struct,
     /// filling in missing fields with default values
     pub fn deserialize_custom_message(json_str: &String) -> Result<Message, serde_json::Error> {
-        use log::{debug, error};
+        use log::{debug, error, info};
         
         debug!("Deserializing custom message from JSON");
+        
+        // Log a preview of the JSON string to help with debugging
+        if json_str.len() > 500 {
+            debug!("JSON preview (first 500 chars): {}", json_str.chars().take(500).collect::<String>());
+        } else {
+            debug!("JSON string: {}", json_str);
+        }
 
         // First, parse the JSON into a generic Value
         let mut json_value: Value = serde_json::from_str(json_str)?;
 
         debug!("Parsed JSON into Value object, checking for missing fields");
+        
+        // Log message ID if present
+        if let Some(id) = json_value.get("id").and_then(|id| id.as_str()) {
+            info!("Processing message with ID: {}", id);
+        }
+        
+        // Check for internalDate field specifically before patching
+        if !json_value.get("internalDate").is_some() {
+            debug!("internalDate field is missing from the original JSON");
+        }
 
         // Apply all the patches to ensure required fields exist
         let (modified, message_id) = json_patch::patch_gmail_message(&mut json_value);
@@ -825,7 +967,7 @@ pub mod server {
     use mcp_attr::{Error as McpError, Result as McpResult};
 
     use crate::config::{Config, ConfigError};
-    use crate::gmail_service::{EmailMessage, GmailService, GmailServiceError};
+    use crate::gmail_service::{GmailService, GmailServiceError};
     
     // Helper functions 
     mod helpers {
@@ -1005,30 +1147,14 @@ pub mod server {
             // Get the Gmail service
             let service = self.init_gmail_service().await?;
 
-            // Get messages
-            let messages = service
-                .list_messages(max, query.as_deref())
+            // Get raw message list JSON
+            let messages_json = service
+                .list_messages_raw(max, query.as_deref())
                 .await
                 .map_err(|err| self.map_gmail_error(err))?;
 
-            // Convert to EmailMessage objects
-            let email_messages: Vec<EmailMessage> = messages
-                .into_iter()
-                .map(EmailMessage::from_gmail_message)
-                .collect();
-
-            // Return as JSON
-            match serde_json::to_string_pretty(&email_messages) {
-                Ok(json) => {
-                    info!("=== END list_emails MCP command (success) ===");
-                    Ok(json)
-                }
-                Err(e) => {
-                    let error_msg = format!("JSON serialization error: {}", e);
-                    error!("=== END list_emails MCP command (error) ===");
-                    Err(self.to_mcp_error(&error_msg, error_codes::SERIALIZATION_ERROR))
-                }
-            }
+            info!("=== END list_emails MCP command (success) ===");
+            Ok(messages_json)
         }
 
         /// Get details for a specific email
@@ -1037,28 +1163,20 @@ pub mod server {
         ///   message_id: The ID of the message to retrieve
         #[tool]
         async fn get_email(&self, message_id: String) -> McpResult<String> {
+            info!("=== START get_email MCP command ===");
             debug!("get_email called with message_id={}", message_id);
 
             // Get the Gmail service
             let service = self.init_gmail_service().await?;
 
-            // Get message
-            let message = service
-                .get_message(&message_id)
+            // Get message as raw JSON
+            let message_json = service
+                .get_message_raw(&message_id)
                 .await
                 .map_err(|err| self.map_gmail_error(err))?;
 
-            // Convert to EmailMessage
-            let email = EmailMessage::from_gmail_message(message);
-
-            // Return as JSON
-            match serde_json::to_string_pretty(&email) {
-                Ok(json) => Ok(json),
-                Err(e) => {
-                    let error_msg = format!("JSON serialization error: {}", e);
-                    Err(self.to_mcp_error(&error_msg, error_codes::SERIALIZATION_ERROR))
-                }
-            }
+            info!("=== END get_email MCP command (success) ===");
+            Ok(message_json)
         }
 
         /// Search for emails using a Gmail search query
@@ -1072,14 +1190,26 @@ pub mod server {
             query: String,
             max_results: Option<serde_json::Value>,
         ) -> McpResult<String> {
-            // Get the parsed max_results value
-            let max = helpers::parse_max_results(max_results.clone(), 10);
+            info!("=== START search_emails MCP command ===");
+            debug!(
+                "search_emails called with query={:?}, max_results={:?}",
+                query, max_results
+            );
             
-            // Create a JSON value for passing to list_emails
-            let max_value = Some(serde_json::Value::Number(serde_json::Number::from(max)));
-
-            // This is essentially the same as list_emails but with a required query parameter
-            self.list_emails(max_value, Some(query)).await
+            // Get the parsed max_results value
+            let max = helpers::parse_max_results(max_results, 10);
+            
+            // Get the Gmail service
+            let service = self.init_gmail_service().await?;
+            
+            // Get raw message list JSON
+            let messages_json = service
+                .list_messages_raw(max, Some(&query))
+                .await
+                .map_err(|err| self.map_gmail_error(err))?;
+                
+            info!("=== END search_emails MCP command (success) ===");
+            Ok(messages_json)
         }
 
         /// Get a list of email labels
