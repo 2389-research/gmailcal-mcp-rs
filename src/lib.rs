@@ -603,6 +603,7 @@ pub mod gmail_service {
             self.try_minimal_format(message_id).await
         }
 
+        /// Return the raw JSON response of labels from Gmail API without any transformation or modification
         pub async fn list_labels(&self) -> Result<String> {
             debug!("Listing labels");
             let response = self
@@ -611,7 +612,7 @@ pub mod gmail_service {
                 .await
                 .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
             
-            // Convert response to raw JSON string
+            // Convert directly to JSON string without any processing or transformation
             match serde_json::to_string_pretty(&response) {
                 Ok(json) => Ok(json),
                 Err(e) => Err(GmailServiceError::ApiError(format!(
@@ -621,6 +622,7 @@ pub mod gmail_service {
             }
         }
 
+        /// Return the raw JSON response of user profile from Gmail API without any transformation or modification
         pub async fn check_connection_raw(&self) -> Result<String> {
             debug!("Checking connection raw");
             let profile = self
@@ -629,7 +631,7 @@ pub mod gmail_service {
                 .await
                 .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
             
-            // Convert response to raw JSON string
+            // Convert directly to JSON string without any processing or transformation
             match serde_json::to_string_pretty(&profile) {
                 Ok(json) => Ok(json),
                 Err(e) => Err(GmailServiceError::ApiError(format!(
@@ -1171,6 +1173,8 @@ pub mod server {
 
         /// Get details for a specific email
         ///
+        /// Returns the raw JSON response from the Gmail API without any transformation or modification.
+        ///
         /// Args:
         ///   message_id: The ID of the message to retrieve
         #[tool]
@@ -1192,6 +1196,8 @@ pub mod server {
         }
 
         /// Search for emails using a Gmail search query
+        ///
+        /// Returns the raw JSON response from the Gmail API without any transformation or modification.
         ///
         /// Args:
         ///   query: Gmail search query string (e.g. "is:unread from:example.com")
@@ -1226,7 +1232,7 @@ pub mod server {
 
         /// Get a list of email labels
         ///
-        /// Returns a list of all labels in the user's mailbox
+        /// Returns the raw JSON response from the Gmail API without any transformation or modification.
         #[tool]
         async fn list_labels(&self) -> McpResult<String> {
             debug!("list_labels called");
@@ -1243,7 +1249,8 @@ pub mod server {
 
         /// Check connection status with Gmail API
         ///
-        /// Tests the connection to Gmail API by retrieving the user's profile
+        /// Tests the connection to Gmail API by retrieving the user's profile.
+        /// Returns the raw JSON response from the Gmail API without any transformation or modification.
         #[tool]
         async fn check_connection(&self) -> McpResult<String> {
             info!("=== START check_connection MCP command ===");
