@@ -156,7 +156,7 @@ pub mod gmail_service {
         }
     }
 
-    // Gmail service error types
+    // Gmail service error types with detailed descriptions
     #[derive(Debug, Error)]
     pub enum GmailServiceError {
         #[error("Gmail API error: {0}")]
@@ -164,6 +164,18 @@ pub mod gmail_service {
 
         #[error("Authentication error: {0}")]
         AuthError(String),
+        
+        #[error("Message retrieval error: {0}")]
+        MessageRetrievalError(String),
+        
+        #[error("Message format error: {0}")]
+        MessageFormatError(String),
+        
+        #[error("Network error: {0}")]
+        NetworkError(String),
+        
+        #[error("Rate limit error: {0}")]
+        RateLimitError(String),
     }
 
     pub type Result<T> = std::result::Result<T, GmailServiceError>;
@@ -1047,7 +1059,7 @@ pub mod server {
     #[derive(Clone)]
     pub struct GmailServer;
 
-    // Enum of error codes used by the Gmail MCP server
+    // Enum of error codes used by the Gmail MCP server with detailed descriptions
     mod error_codes {
         /// Configuration related errors (environment variables, etc.)
         pub const CONFIG_ERROR: u32 = 1001;
@@ -1064,6 +1076,30 @@ pub mod server {
         /// General application errors for unspecified issues
         #[allow(dead_code)]
         pub const GENERAL_ERROR: u32 = 1000;
+        
+        // Map error codes to human-readable descriptions
+        pub fn get_error_description(code: u32) -> &'static str {
+            match code {
+                CONFIG_ERROR => "Configuration Error: Missing or invalid environment variables required for Gmail authentication",
+                AUTH_ERROR => "Authentication Error: Failed to authenticate with Gmail API using the provided credentials",
+                API_ERROR => "Gmail API Error: The request to the Gmail API failed",
+                MESSAGE_FORMAT_ERROR => "Message Format Error: The response from Gmail API has missing or invalid fields",
+                GENERAL_ERROR => "General Error: An unspecified error occurred in the Gmail MCP server",
+                _ => "Unknown Error: An unclassified error occurred",
+            }
+        }
+        
+        // Get detailed troubleshooting steps for each error code
+        pub fn get_troubleshooting_steps(code: u32) -> &'static str {
+            match code {
+                CONFIG_ERROR => "Check that you have correctly set the following environment variables: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN. These should be in your .env file or exported in your shell.",
+                AUTH_ERROR => "Verify your OAuth credentials. Your refresh token may have expired or been revoked. Try generating new OAuth credentials and updating your environment variables.",
+                API_ERROR => "The Gmail API request failed. This could be due to API rate limits, network issues, or an invalid request. Check your internet connection and review the specific error details.",
+                MESSAGE_FORMAT_ERROR => "The Gmail API returned data in an unexpected format. This may be due to changes in the API or issues with specific messages. Try with a different message ID or update the server code.",
+                GENERAL_ERROR => "Review server logs for more details about what went wrong. Check for any recent changes to your code or environment.",
+                _ => "Check the server logs for more specific error information. Ensure all dependencies are up to date.",
+            }
+        }
     }
 
     impl GmailServer {
@@ -1071,51 +1107,178 @@ pub mod server {
             GmailServer {}
         }
 
-        // Helper function to create McpError with appropriate error code
+        // Helper function to create detailed McpError with appropriate error code and context
         fn to_mcp_error(&self, message: &str, code: u32) -> McpError {
-            error!("Creating MCP error: {} (code: {})", message, code);
-            McpError::new(ErrorCode(code as i64))
+            use error_codes::{get_error_description, get_troubleshooting_steps};
+            
+            // Get the generic description for this error code
+            let description = get_error_description(code);
+            
+            // Get troubleshooting steps
+            let steps = get_troubleshooting_steps(code);
+            
+            // Create a detailed error message with multiple parts
+            let detailed_error = format!(
+                "ERROR CODE {}: {}\n\nDETAILS: {}\n\nTROUBLESHOOTING: {}\n\nSERVER MESSAGE: {}", 
+                code, description, message, steps, 
+                "If the problem persists, contact the server administrator and reference this error code."
+            );
+            
+            // Log the full error details
+            error!("Creating MCP error: {} (code: {})\n{}", message, code, detailed_error);
+            
+            // Create the MCP error with the detailed message
+            // Use with_message instead of set_message, setting is_public to true to show the message to the client
+            McpError::new(ErrorCode(code as i64)).with_message(detailed_error, true)
         }
 
-        // Helper function to map GmailServiceError to McpError with specific codes
+        // Helper function to map GmailServiceError to detailed McpError with specific codes
         fn map_gmail_error(&self, err: GmailServiceError) -> McpError {
             match err {
                 GmailServiceError::ApiError(e) => {
-                    let msg = format!("Gmail API error: {}", e);
-                    
-                    // Determine more specific error type from the message content
-                    let code = if e.contains("authentication") || e.contains("auth") || e.contains("token") {
-                        error_codes::AUTH_ERROR
+                    // Analyze the error message to provide more context
+                    let (code, detailed_msg) = if e.contains("quota") || e.contains("rate") || e.contains("limit") {
+                        (
+                            error_codes::API_ERROR,
+                            format!(
+                                "Gmail API rate limit exceeded: {}. The server has made too many requests to the Gmail API. \
+                                This typically happens when many requests are made in quick succession. \
+                                Please try again in a few minutes.", 
+                                e
+                            )
+                        )
+                    } else if e.contains("network") || e.contains("connection") || e.contains("timeout") {
+                        (
+                            error_codes::API_ERROR,
+                            format!(
+                                "Network error while connecting to Gmail API: {}. The server couldn't establish a \
+                                connection to the Gmail API. This may be due to network issues or the Gmail API \
+                                might be experiencing downtime.", 
+                                e
+                            )
+                        )
+                    } else if e.contains("authentication") || e.contains("auth") || e.contains("token") {
+                        (
+                            error_codes::AUTH_ERROR,
+                            format!(
+                                "Gmail API authentication failed: {}. The OAuth token used to authenticate with \
+                                Gmail may have expired or been revoked. Please check your credentials and try \
+                                regenerating your refresh token.", 
+                                e
+                            )
+                        )
                     } else if e.contains("format") || e.contains("missing field") || e.contains("parse") {
-                        error_codes::MESSAGE_FORMAT_ERROR
+                        (
+                            error_codes::MESSAGE_FORMAT_ERROR,
+                            format!(
+                                "Gmail API response format error: {}. The API returned data in an unexpected format. \
+                                This might be due to changes in the Gmail API or issues with specific messages. \
+                                The server attempted multiple fallback strategies but still couldn't process the response.", 
+                                e
+                            )
+                        )
+                    } else if e.contains("not found") || e.contains("404") {
+                        (
+                            error_codes::API_ERROR,
+                            format!(
+                                "Gmail API resource not found: {}. The requested message or resource doesn't exist \
+                                or you don't have permission to access it. Please check the message ID and ensure \
+                                it exists in your Gmail account.", 
+                                e
+                            )
+                        )
                     } else {
-                        error_codes::API_ERROR
+                        (
+                            error_codes::API_ERROR,
+                            format!(
+                                "Unspecified Gmail API error: {}. An unexpected error occurred when communicating \
+                                with the Gmail API. Please check the server logs for more details.", 
+                                e
+                            )
+                        )
                     };
                     
-                    self.to_mcp_error(&msg, code)
+                    self.to_mcp_error(&detailed_msg, code)
                 },
                 GmailServiceError::AuthError(e) => {
-                    let msg = format!("Gmail authentication error: {}", e);
-                    self.to_mcp_error(&msg, error_codes::AUTH_ERROR)
+                    let detailed_msg = format!(
+                        "Gmail authentication error: {}. Failed to authenticate with the Gmail API using the provided \
+                        credentials. Please verify your client ID, client secret, and refresh token.", 
+                        e
+                    );
+                    self.to_mcp_error(&detailed_msg, error_codes::AUTH_ERROR)
+                },
+                GmailServiceError::MessageRetrievalError(e) => {
+                    let detailed_msg = format!(
+                        "Message retrieval error: {}. Failed to retrieve the requested message from Gmail. \
+                        This may be due to the message being deleted, access permissions, or temporary Gmail API issues. \
+                        The server attempted multiple fallback strategies but couldn't retrieve the message.", 
+                        e
+                    );
+                    self.to_mcp_error(&detailed_msg, error_codes::API_ERROR)
+                },
+                GmailServiceError::MessageFormatError(e) => {
+                    let detailed_msg = format!(
+                        "Message format error: {}. The Gmail API returned a malformed message or one with missing required fields. \
+                        The server tried multiple approaches to fix the issue but couldn't process the message correctly. \
+                        This typically happens with certain types of messages that have unusual formats or corrupt data.", 
+                        e
+                    );
+                    self.to_mcp_error(&detailed_msg, error_codes::MESSAGE_FORMAT_ERROR)
+                },
+                GmailServiceError::NetworkError(e) => {
+                    let detailed_msg = format!(
+                        "Network error: {}. The server couldn't establish a connection to the Gmail API. \
+                        This might be due to network configuration issues, outages, or firewall restrictions. \
+                        Please check your internet connection and server network configuration.", 
+                        e
+                    );
+                    self.to_mcp_error(&detailed_msg, error_codes::API_ERROR)
+                },
+                GmailServiceError::RateLimitError(e) => {
+                    let detailed_msg = format!(
+                        "Rate limit error: {}. The Gmail API has rate-limited the server's requests. \
+                        This happens when too many requests are made in a short period of time. \
+                        The server will automatically retry after a cooldown period, but you may need to wait \
+                        or reduce the frequency of requests.", 
+                        e
+                    );
+                    self.to_mcp_error(&detailed_msg, error_codes::API_ERROR)
                 },
             }
         }
 
-        // Helper function to initialize Gmail service
+        // Helper function to initialize Gmail service with detailed error handling
         async fn init_gmail_service(&self) -> McpResult<GmailService> {
             // Load configuration
             let config = Config::from_env().map_err(|err| {
                 let msg = match err {
                     ConfigError::MissingEnvVar(var) => {
-                        format!("Missing environment variable: {}", var)
+                        format!(
+                            "Missing environment variable: {}. \
+                            This variable is required for Gmail authentication. \
+                            Please ensure you have set up your .env file correctly or exported the variable in your shell. \
+                            Create an OAuth2 client in the Google Cloud Console to obtain these credentials.", 
+                            var
+                        )
                     }
-                    ConfigError::EnvError(e) => format!("Environment variable error: {}", e),
+                    ConfigError::EnvError(e) => {
+                        format!(
+                            "Environment variable error: {}. \
+                            There was a problem reading the environment variables needed for Gmail authentication. \
+                            Check permissions on your .env file and ensure it's properly formatted without special characters or quotes.", 
+                            e
+                        )
+                    },
                 };
                 self.to_mcp_error(&msg, error_codes::CONFIG_ERROR)
             })?;
 
             // Create Gmail service
-            GmailService::new(&config).map_err(|err| self.map_gmail_error(err))
+            GmailService::new(&config).map_err(|err| {
+                error!("Failed to create Gmail service: {}", err);
+                self.map_gmail_error(err)
+            })
         }
     }
 
@@ -1162,10 +1325,24 @@ pub mod server {
             let service = self.init_gmail_service().await?;
 
             // Get raw message list JSON directly from the API without transformation
-            let messages_json = service
-                .list_messages_raw(max, query.as_deref())
-                .await
-                .map_err(|err| self.map_gmail_error(err))?;
+            let messages_json = match service.list_messages_raw(max, query.as_deref()).await {
+                Ok(json) => json,
+                Err(err) => {
+                    let query_info = query.as_deref().unwrap_or("none");
+                    error!(
+                        "Failed to list emails with max_results={}, query='{}': {}", 
+                        max, query_info, err
+                    );
+                    
+                    // Create detailed contextual error
+                    // Include detailed context in the error log
+                    error!("Context: Failed to list emails with parameters: max_results={}, query='{}'", 
+                        max, query_info
+                    );
+                    
+                    return Err(self.map_gmail_error(err));
+                }
+            };
 
             info!("=== END list_emails MCP command (success) ===");
             Ok(messages_json)
@@ -1186,10 +1363,20 @@ pub mod server {
             let service = self.init_gmail_service().await?;
 
             // Get message as raw JSON
-            let message_json = service
-                .get_message_raw(&message_id)
-                .await
-                .map_err(|err| self.map_gmail_error(err))?;
+            let message_json = match service.get_message_raw(&message_id).await {
+                Ok(json) => json,
+                Err(err) => {
+                    error!("Failed to get email with message_id='{}': {}", message_id, err);
+                    
+                    // Create detailed contextual error
+                    // Include detailed context in the error log
+                    error!("Context: Failed to retrieve email with ID: '{}'", 
+                        message_id
+                    );
+                    
+                    return Err(self.map_gmail_error(err));
+                }
+            };
 
             info!("=== END get_email MCP command (success) ===");
             Ok(message_json)
@@ -1221,10 +1408,20 @@ pub mod server {
             let service = self.init_gmail_service().await?;
             
             // Get raw message list JSON
-            let messages_json = service
-                .list_messages_raw(max, Some(&query))
-                .await
-                .map_err(|err| self.map_gmail_error(err))?;
+            let messages_json = match service.list_messages_raw(max, Some(&query)).await {
+                Ok(json) => json,
+                Err(err) => {
+                    error!("Failed to search emails with query='{}', max_results={}: {}", query, max, err);
+                    
+                    // Create detailed contextual error with specific advice for search queries
+                    // Include detailed context in the error log
+                    error!("Context: Failed to search emails with query: '{}'", 
+                        query
+                    );
+                    
+                    return Err(self.map_gmail_error(err));
+                }
+            };
                 
             info!("=== END search_emails MCP command (success) ===");
             Ok(messages_json)
@@ -1241,10 +1438,18 @@ pub mod server {
             let service = self.init_gmail_service().await?;
 
             // Get labels
-            service
-                .list_labels()
-                .await
-                .map_err(|err| self.map_gmail_error(err))
+            match service.list_labels().await {
+                Ok(labels) => Ok(labels),
+                Err(err) => {
+                    error!("Failed to list labels: {}", err);
+                    
+                    // Provide detailed error with troubleshooting steps
+                    // Include detailed context in the error log
+                    error!("Context: Failed to retrieve Gmail labels. This operation requires read access permissions.");
+                    
+                    Err(self.map_gmail_error(err))
+                }
+            }
         }
 
         /// Check connection status with Gmail API
@@ -1260,10 +1465,18 @@ pub mod server {
             let service = self.init_gmail_service().await?;
 
             // Get profile as raw JSON
-            let profile_json = service
-                .check_connection_raw()
-                .await
-                .map_err(|err| self.map_gmail_error(err))?;
+            let profile_json = match service.check_connection_raw().await {
+                Ok(json) => json,
+                Err(err) => {
+                    error!("Connection check failed: {}", err);
+                    
+                    // Provide helpful information on connectivity issues
+                    // Include detailed context in the error log
+                    error!("Context: Failed to connect to Gmail API. This is a basic connectivity test failure.");
+                    
+                    return Err(self.map_gmail_error(err));
+                }
+            };
 
             info!("=== END check_connection MCP command (success) ===");
             Ok(profile_json)
