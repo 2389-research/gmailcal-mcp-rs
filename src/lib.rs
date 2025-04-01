@@ -1,6 +1,5 @@
 pub use crate::config::Config;
-pub use crate::gmail_custom::deserialize_custom_message;
-pub use crate::gmail_service::EmailMessage;
+pub use crate::gmail_api::EmailMessage;
 pub use crate::logging::setup_logging;
 /// Gmail MCP Server Implementation
 ///
@@ -80,14 +79,133 @@ pub mod config {
     }
 }
 
-// Gmail service module
-pub mod gmail_service {
+// Direct Gmail API implementation
+pub mod gmail_api {
     use crate::config::Config;
-    use gmail::model::Message;
-    use gmail::GmailClient;
     use log::{debug, error, info};
+    use reqwest::Client;
     use serde::{Deserialize, Serialize};
+    use serde_json::Value;
+    use std::time::{Duration, SystemTime};
     use thiserror::Error;
+
+    const GMAIL_API_BASE_URL: &str = "https://gmail.googleapis.com/gmail/v1";
+    const OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+
+    // Token response for OAuth2
+    #[derive(Debug, Deserialize)]
+    struct TokenResponse {
+        access_token: String,
+        expires_in: u64,
+        #[serde(default)]
+        #[allow(dead_code)]
+        token_type: String,
+    }
+
+    // OAuth token manager
+    #[derive(Debug, Clone)]
+    struct TokenManager {
+        access_token: String,
+        expiry: SystemTime,
+        refresh_token: String,
+        client_id: String,
+        client_secret: String,
+    }
+
+    impl TokenManager {
+        fn new(config: &Config) -> Self {
+            let expiry = if config.access_token.is_some() {
+                // If we have an initial access token, set expiry to 10 minutes from now
+                // This is conservative but ensures we'll refresh soon if needed
+                SystemTime::now() + Duration::from_secs(600)
+            } else {
+                // Otherwise set expiry to now to force a refresh
+                SystemTime::now()
+            };
+
+            Self {
+                access_token: config.access_token.clone().unwrap_or_default(),
+                expiry,
+                refresh_token: config.refresh_token.clone(),
+                client_id: config.client_id.clone(),
+                client_secret: config.client_secret.clone(),
+            }
+        }
+
+        async fn get_token(&mut self, client: &Client) -> Result<String> {
+            // Debug log the initial state
+            debug!("Token status check - have token: {}, valid: {}", 
+                !self.access_token.is_empty(), 
+                SystemTime::now() < self.expiry);
+
+            // Check if current token is still valid
+            if !self.access_token.is_empty() && SystemTime::now() < self.expiry {
+                debug!("Using existing token");
+                return Ok(self.access_token.clone());
+            }
+
+            debug!("OAuth token expired or not set, refreshing");
+
+            // Refresh the token
+            let params = [
+                ("client_id", self.client_id.as_str()),
+                ("client_secret", self.client_secret.as_str()),
+                ("refresh_token", self.refresh_token.as_str()),
+                ("grant_type", "refresh_token"),
+            ];
+
+            // Log request details for troubleshooting (but hide credentials)
+            debug!("Requesting token from {}", OAUTH_TOKEN_URL);
+            debug!("Using client_id: {}...{} (truncated)", 
+                &self.client_id[..4], 
+                &self.client_id[self.client_id.len().saturating_sub(4)..]);
+            debug!("Using refresh_token starting with: {}... (truncated)", 
+                if self.refresh_token.len() > 8 { &self.refresh_token[..8] } else { "(token too short)" });
+
+            let response = client
+                .post(OAUTH_TOKEN_URL)
+                .form(&params)
+                .send()
+                .await
+                .map_err(|e| GmailApiError::NetworkError(e.to_string()))?;
+
+            let status = response.status();
+            debug!("Token response status: {}", status);
+
+            if !status.is_success() {
+                let error_text = response.text().await.unwrap_or_else(|_| "<no response body>".to_string());
+                
+                error!("Token refresh failed. Status: {}, Error: {}", status, error_text);
+                return Err(GmailApiError::AuthError(format!(
+                    "Failed to refresh token. Status: {}, Error: {}",
+                    status, error_text
+                )));
+            }
+
+            let response_text = response.text().await
+                .map_err(|e| GmailApiError::ApiError(format!("Failed to get token response: {}", e)))?;
+            
+            debug!("Token response received, parsing JSON");
+            
+            let token_data: TokenResponse = serde_json::from_str(&response_text)
+                .map_err(|e| {
+                    error!("Failed to parse token response: {}. Response: {}", e, response_text);
+                    GmailApiError::ApiError(format!("Failed to parse token response: {}", e))
+                })?;
+
+            // Update token and expiry
+            self.access_token = token_data.access_token.clone();
+            // Set expiry to slightly less than the actual expiry to be safe
+            let expires_in = token_data.expires_in.saturating_sub(60); // 1 minute buffer
+            self.expiry = SystemTime::now() + Duration::from_secs(expires_in);
+
+            debug!("Token refreshed successfully, valid for {} seconds", expires_in);
+            debug!("Token starts with: {}... (truncated)", 
+                if self.access_token.len() > 10 { &self.access_token[..10] } else { "(token too short)" });
+            
+            Ok(self.access_token.clone())
+        }
+    }
 
     // Email message model
     #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -101,64 +219,9 @@ pub mod gmail_service {
         pub snippet: Option<String>,
     }
 
-    impl EmailMessage {
-        pub fn from_gmail_message(message: Message) -> Self {
-            debug!(
-                "Converting Gmail Message to EmailMessage for ID: {}",
-                message.id
-            );
-
-            // Initialize header values
-            let mut subject = None;
-            let mut from = None;
-            let mut to = None;
-            let mut date = None;
-
-            // Extract headers if payload.headers exists and is not empty
-            for header in &message.payload.headers {
-                match header.name.as_str() {
-                    "Subject" => {
-                        debug!("Found Subject header: {}", header.value);
-                        subject = Some(header.value.clone());
-                    }
-                    "From" => {
-                        debug!("Found From header: {}", header.value);
-                        from = Some(header.value.clone());
-                    }
-                    "To" => {
-                        debug!("Found To header: {}", header.value);
-                        to = Some(header.value.clone());
-                    }
-                    "Date" => {
-                        debug!("Found Date header: {}", header.value);
-                        date = Some(header.value.clone());
-                    }
-                    _ => {} // Ignore other headers
-                }
-            }
-
-            // Get snippet
-            let snippet = if message.snippet.is_empty() {
-                None
-            } else {
-                Some(message.snippet)
-            };
-
-            EmailMessage {
-                id: message.id,
-                thread_id: message.thread_id,
-                subject,
-                from,
-                to,
-                date,
-                snippet,
-            }
-        }
-    }
-
-    // Gmail service error types with detailed descriptions
+    // Gmail API error types
     #[derive(Debug, Error)]
-    pub enum GmailServiceError {
+    pub enum GmailApiError {
         #[error("Gmail API error: {0}")]
         ApiError(String),
 
@@ -178,191 +241,213 @@ pub mod gmail_service {
         RateLimitError(String),
     }
 
-    pub type Result<T> = std::result::Result<T, GmailServiceError>;
+    pub type Result<T> = std::result::Result<T, GmailApiError>;
 
     pub struct GmailService {
-        client: GmailClient,
+        client: Client,
+        token_manager: TokenManager,
     }
 
     impl GmailService {
         pub fn new(config: &Config) -> Result<Self> {
             debug!("Creating new GmailService with config");
-            let client = create_client(config)?;
-            Ok(Self { client })
-        }
-
-        /// Attempts to retrieve a message using the standard "full" format
-        async fn get_message_standard_format(&self, message_id: &str) -> Result<Message> {
-            debug!("Attempting to retrieve message with standard format: {}", message_id);
             
-            // Try with "full" format
-            let result = self
-                .client
-                .messages_get(message_id, "me")
-                .format("full")
-                .await;
+            // Create HTTP client with reasonable timeouts
+            debug!("Creating HTTP client with timeouts");
+            let client = Client::builder()
+                .timeout(Duration::from_secs(60))  // Longer timeout for Gmail API
+                .connect_timeout(Duration::from_secs(30))
+                .pool_idle_timeout(Duration::from_secs(90))
+                .pool_max_idle_per_host(5)
+                .user_agent("mcp-gmailcal/0.1.0")
+                .build()
+                .map_err(|e| {
+                    error!("Failed to create HTTP client: {}", e);
+                    GmailApiError::NetworkError(format!("Failed to create HTTP client: {}", e))
+                })?;
                 
-            match result {
-                Ok(message) => {
-                    debug!("Successfully retrieved message with standard approach");
-                    debug!(
-                        "Message ID: {}, Thread ID: {}",
-                        message.id, message.thread_id
-                    );
-                    debug!("Has internalDate: {}", !message.internal_date.is_empty());
-                    debug!("Labels count: {}", message.label_ids.len());
-                    debug!("Headers count: {}", message.payload.headers.len());
+            debug!("HTTP client created successfully");
+            
+            let token_manager = TokenManager::new(config);
+            
+            Ok(Self { client, token_manager })
+        }
 
-                    // Import the MessageExt trait
-                    use crate::gmail_custom::MessageExt;
-                    
-                    // Ensure all required fields have values
-                    let message = message.ensure_required_fields();
-                    Ok(message)
-                }
-                Err(e) => Err(GmailServiceError::ApiError(e.to_string()))
+        // Helper function to make authenticated requests to Gmail API
+        async fn request<T: for<'de> Deserialize<'de>>(
+            &mut self,
+            method: reqwest::Method,
+            endpoint: &str,
+            query: Option<&[(&str, &str)]>,
+        ) -> Result<T> {
+            // Get valid access token
+            let token = self.token_manager.get_token(&self.client).await?;
+            
+            let url = format!("{}{}", GMAIL_API_BASE_URL, endpoint);
+            debug!("Making request to: {}", url);
+            
+            // Build request with authorization header
+            debug!("Making authenticated request to {}", url);
+            let mut req_builder = self.client
+                .request(method, &url)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Accept", "application/json")
+                .header("User-Agent", "mcp-gmailcal/0.1.0");
+                
+            // Add query parameters if provided
+            if let Some(q) = query {
+                req_builder = req_builder.query(q);
             }
-        }
-        
-        /// Checks if an error is related to missing fields in the API response
-        fn is_missing_field_error(&self, error: &str) -> bool {
-            error.contains("missing field")
-                || error.contains("unknown field")
-                || error.contains("missing key")
-                || error.contains("expected value")
-        }
-        
-        /// Handles message retrieval when the standard approach fails
-        async fn handle_retrieval_error(&self, message_id: &str, original_error: GmailServiceError) -> Result<Message> {
-            // Import the MessageExt trait
-            use crate::gmail_custom::MessageExt;
             
-            let error_str = original_error.to_string();
+            // Send request
+            debug!("Sending request to Gmail API");
+            let response = req_builder
+                .send()
+                .await
+                .map_err(|e| {
+                    error!("Network error sending request: {}", e);
+                    GmailApiError::NetworkError(e.to_string())
+                })?;
+                
+            debug!("Response received with status: {}", response.status());
             
-            // Check if this is a deserialization error related to missing fields
-            if self.is_missing_field_error(&error_str) {
-                debug!("Detected missing field error: {}", error_str);
-                info!(
-                    "Using custom message retrieval for message {} due to missing field",
-                    message_id
-                );
+            // Handle response status
+            let status = response.status();
+            if !status.is_success() {
+                let status_code = status.as_u16();
+                let error_text = response.text().await.unwrap_or_else(|_| "<no response body>".to_string());
+                
+                // Map common error codes to appropriate error types
+                return match status_code {
+                    401 | 403 => Err(GmailApiError::AuthError(format!(
+                        "Authentication failed. Status: {}, Error: {}",
+                        status, error_text
+                    ))),
+                    404 => Err(GmailApiError::MessageRetrievalError(format!(
+                        "Resource not found. Status: {}, Error: {}",
+                        status, error_text
+                    ))),
+                    429 => Err(GmailApiError::RateLimitError(format!(
+                        "Rate limit exceeded. Status: {}, Error: {}",
+                        status, error_text
+                    ))),
+                    _ => Err(GmailApiError::ApiError(format!(
+                        "API request failed. Status: {}, Error: {}",
+                        status, error_text
+                    ))),
+                };
+            }
+            
+            // Parse JSON response
+            response
+                .json::<T>()
+                .await
+                .map_err(|e| GmailApiError::MessageFormatError(format!("Failed to parse response: {}", e)))
+        }
 
-                // Try with custom retrieval that handles missing fields
-                match self.try_direct_message_retrieval(message_id).await {
-                    Ok(msg) => {
-                        debug!("Successfully retrieved message using custom approach");
-                        Ok(msg.ensure_required_fields())
-                    }
-                    Err(fallback_err) => {
-                        error!("Custom message retrieval failed: {}", fallback_err);
-
-                        // Last resort - try with minimal format and patch the message
-                        self.try_minimal_format(message_id).await.map(|msg| msg.ensure_required_fields())
-                    }
-                }
+        // Helper function to make a request and return the raw JSON response
+        async fn request_raw(
+            &mut self,
+            method: reqwest::Method,
+            endpoint: &str,
+            query: Option<&[(&str, &str)]>,
+        ) -> Result<String> {
+            // Get valid access token
+            let token = self.token_manager.get_token(&self.client).await?;
+            
+            let url = format!("{}{}", GMAIL_API_BASE_URL, endpoint);
+            debug!("Making raw request to: {}", url);
+            
+            // Build request with authorization header
+            debug!("Making raw authenticated request to {}", url);
+            let mut req_builder = self.client
+                .request(method, &url)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Accept", "application/json")
+                .header("User-Agent", "mcp-gmailcal/0.1.0");
+                
+            // Add query parameters if provided
+            if let Some(q) = query {
+                req_builder = req_builder.query(q);
+            }
+            
+            // Send request
+            debug!("Sending raw request to Gmail API");
+            let response = req_builder
+                .send()
+                .await
+                .map_err(|e| {
+                    error!("Network error sending raw request: {}", e);
+                    GmailApiError::NetworkError(e.to_string())
+                })?;
+            
+            debug!("Raw response received with status: {}", response.status());
+            
+            // Handle response status
+            let status = response.status();
+            if !status.is_success() {
+                let status_code = status.as_u16();
+                let error_text = response.text().await.unwrap_or_else(|_| "<no response body>".to_string());
+                
+                // Map common error codes to appropriate error types
+                return match status_code {
+                    401 | 403 => Err(GmailApiError::AuthError(format!(
+                        "Authentication failed. Status: {}, Error: {}",
+                        status, error_text
+                    ))),
+                    404 => Err(GmailApiError::MessageRetrievalError(format!(
+                        "Resource not found. Status: {}, Error: {}",
+                        status, error_text
+                    ))),
+                    429 => Err(GmailApiError::RateLimitError(format!(
+                        "Rate limit exceeded. Status: {}, Error: {}",
+                        status, error_text
+                    ))),
+                    _ => Err(GmailApiError::ApiError(format!(
+                        "API request failed. Status: {}, Error: {}",
+                        status, error_text
+                    ))),
+                };
+            }
+            
+            // Get raw JSON as string
+            debug!("Reading response body");
+            let json_text = response
+                .text()
+                .await
+                .map_err(|e| {
+                    error!("Failed to get response body: {}", e);
+                    GmailApiError::NetworkError(format!("Failed to get response body: {}", e))
+                })?;
+            
+            // Log a preview of the response
+            let preview = if json_text.len() > 200 {
+                format!("{}... (truncated, total size: {} bytes)", &json_text[..200], json_text.len())
             } else {
-                // This is not a missing field error, might be another API issue
-                error!("Non-deserialization API error: {}", error_str);
-
-                // Still try fallback as a last resort
-                match self.try_direct_message_retrieval(message_id).await {
-                    Ok(msg) => {
-                        debug!("Successfully retrieved message using fallback approach");
-                        Ok(msg.ensure_required_fields())
-                    }
-                    Err(fallback_err) => {
-                        self.handle_all_retrieval_methods_failed(message_id, original_error, fallback_err)
-                    }
+                json_text.clone()
+            };
+            debug!("Raw response body: {}", preview);
+                
+            // Format JSON for pretty printing
+            match serde_json::from_str::<Value>(&json_text) {
+                Ok(value) => {
+                    debug!("Successfully parsed response as JSON");
+                    serde_json::to_string_pretty(&value)
+                        .map_err(|e| {
+                            error!("Failed to format JSON: {}", e);
+                            GmailApiError::MessageFormatError(format!("Failed to format JSON: {}", e))
+                        })
+                }
+                Err(e) => {
+                    error!("Failed to parse response as JSON: {}", e);
+                    debug!("Returning raw response text");
+                    Ok(json_text) // Return as-is if not valid JSON
                 }
             }
         }
         
-        /// Create a minimal valid Message with defaults for all required fields
-        fn create_minimal_message(&self, message_id: &str) -> Message {
-            use gmail::model::{Message, MessagePart, MessagePartBody};
-            use crate::gmail_custom::defaults;
-            
-            debug!("Creating minimal message structure with default values for ID: {}", message_id);
-            
-            // Create a minimal valid Message with defaults for all required fields
-            Message {
-                id: message_id.to_string(),
-                thread_id: message_id.to_string(), // Default to using message_id
-                label_ids: Vec::new(),
-                snippet: String::new(),
-                history_id: "0".to_string(),
-                internal_date: defaults::INTERNAL_DATE.to_string(),
-                payload: MessagePart {
-                    part_id: String::new(),
-                    mime_type: defaults::MIME_TYPE.to_string(),
-                    filename: String::new(),
-                    headers: Vec::new(),
-                    body: MessagePartBody::Empty { size: 0 },
-                    parts: Vec::new(),
-                },
-                size_estimate: 0,
-                raw: None,
-            }
-        }
-        
-        /// Creates a detailed error when all retrieval methods have failed
-        fn handle_all_retrieval_methods_failed(
-            &self, 
-            message_id: &str, 
-            original_error: GmailServiceError, 
-            fallback_error: GmailServiceError
-        ) -> Result<Message> {
-            error!(
-                "All message retrieval approaches failed: {} and {}",
-                original_error, fallback_error
-            );
-
-            // Provide a more detailed error message for debugging
-            let detailed_error = format!(
-                "Gmail API message format error: Unable to retrieve message with ID {}. \
-                The API response is missing required fields and all recovery attempts failed. \
-                Original error: {}. Fallback error: {}", 
-                message_id, original_error, fallback_error
-            );
-
-            // Log the detailed error
-            error!("{}", detailed_error);
-            
-            // Last resort - create a minimal message with default values
-            if original_error.to_string().contains("internalDate") || 
-               fallback_error.to_string().contains("internalDate") {
-                info!("Using last resort minimal message creation for message with ID: {}", message_id);
-                return Ok(self.create_minimal_message(message_id));
-            }
-
-            // Return a more user-friendly error
-            Err(GmailServiceError::ApiError(
-                "The Gmail API returned a message with missing required fields. \
-                This might be due to an issue with the specific message format or \
-                API limitations. Please try a different message ID.".to_string()
-            ))
-        }
-        
-        /// Main method to get a message with fallback strategies
-        pub async fn get_message(&self, message_id: &str) -> Result<Message> {
-            debug!("Getting message with ID: {}", message_id);
-
-            // Log request details
-            let request_details = format!(
-                "Request details: User ID: 'me', Message ID: '{}', Format: 'full'",
-                message_id
-            );
-            log::info!("{}", request_details);
-
-            // Try standard format first
-            match self.get_message_standard_format(message_id).await {
-                Ok(message) => Ok(message),
-                Err(e) => self.handle_retrieval_error(message_id, e).await
-            }
-        }
-        
-        /// Get a message by ID and return as raw JSON instead of a Message struct
-        pub async fn get_message_raw(&self, message_id: &str) -> Result<String> {
+        /// Get a message by ID and return as raw JSON
+        pub async fn get_message_raw(&mut self, message_id: &str) -> Result<String> {
             debug!("Getting raw message with ID: {}", message_id);
             
             // Log request details
@@ -370,321 +455,74 @@ pub mod gmail_service {
                 "Request details: User ID: 'me', Message ID: '{}', Format: 'full'",
                 message_id
             );
-            log::info!("{}", request_details);
+            info!("{}", request_details);
             
-            // Execute the request
-            let mut request = self.client.messages_get(message_id, "me");
-            request = request.format("full");
+            // Build query params for full message format
+            let query = [("format", "full")];
             
-            // Get the raw response
-            let response = request.await.map_err(|e| {
-                error!("Failed to get message: {}", e);
-                GmailServiceError::ApiError(e.to_string())
-            })?;
-            
-            // Convert to JSON
-            match serde_json::to_string_pretty(&response) {
-                Ok(json) => Ok(json),
-                Err(e) => Err(GmailServiceError::ApiError(format!(
-                    "JSON serialization error: {}",
-                    e
-                )))
-            }
+            // Execute request
+            let endpoint = format!("/users/me/messages/{}", message_id);
+            self.request_raw(reqwest::Method::GET, &endpoint, Some(&query)).await
         }
 
-        /// Return the raw JSON response from Gmail API without any transformation or modification
-        pub async fn list_messages_raw(&self, max_results: u32, query: Option<&str>) -> Result<String> {
+        /// List messages and return raw JSON response
+        pub async fn list_messages_raw(&mut self, max_results: u32, query: Option<&str>) -> Result<String> {
             debug!("Listing raw messages with max_results={}, query={:?}", max_results, query);
             
-            // Set up the request
-            let mut request = self.client.messages_list("me");
-            request = request.max_results(max_results.into());
+            // Create string representation of max_results
+            let max_results_str = max_results.to_string();
             
+            // Execute request
+            let endpoint = "/users/me/messages";
+            
+            // Handle query parameter differently to avoid lifetime issues
             if let Some(q) = query {
-                debug!("Using query: {}", q);
-                request = request.q(q);
-            }
-            
-            // Execute the request
-            debug!("Executing messages.list request");
-            let response = request.await.map_err(|e| {
-                error!("Failed to list messages: {}", e);
-                GmailServiceError::ApiError(e.to_string())
-            })?;
-            
-            // Convert directly to JSON string without any processing or transformation
-            match serde_json::to_string_pretty(&response) {
-                Ok(json) => Ok(json),
-                Err(e) => Err(GmailServiceError::ApiError(format!(
-                    "JSON serialization error: {}",
-                    e
-                )))
-            }
-        }
-
-        pub async fn list_messages(
-            &self,
-            max_results: u32,
-            query: Option<&str>,
-        ) -> Result<Vec<Message>> {
-            debug!(
-                "Listing messages with max_results={}, query={:?}",
-                max_results, query
-            );
-
-            // Set up the request
-            let mut request = self.client.messages_list("me");
-            request = request.max_results(max_results.into());
-
-            if let Some(q) = query {
-                debug!("Using query: {}", q);
-                request = request.q(q);
-            }
-
-            // Execute the request
-            debug!("Executing messages.list request");
-            let response = request.await.map_err(|e| {
-                error!("Failed to list messages: {}", e);
-                GmailServiceError::ApiError(e.to_string())
-            })?;
-            
-            // Add debug logging to see raw response
-            if let Ok(json_str) = serde_json::to_string_pretty(&response) {
-                let preview = if json_str.len() > 500 {
-                    format!("{}{}", json_str.chars().take(500).collect::<String>(), "...")
-                } else {
-                    json_str.clone()
-                };
-                debug!("Raw response from Gmail API: {}", preview);
-                
-                // Explicitly check for internalDate field in the response
-                if !json_str.contains("internalDate") {
-                    debug!("internalDate field not found in the API response - will need patching");
-                }
-            }
-
-            // Check if we have messages
-            if let Some(message_refs) = response.messages {
-                let count = message_refs.len();
-                info!("Found {} message references", count);
-
-                if count == 0 {
-                    return Ok(Vec::new());
-                }
-
-                // Fetch each message
-                let mut messages = Vec::with_capacity(count);
-                for (idx, msg_ref) in message_refs.iter().enumerate() {
-                    info!("Fetching message {}/{}: ID {}", idx + 1, count, msg_ref.id);
-                    // Import the MessageExt trait
-                    use crate::gmail_custom::MessageExt;
-
-                    match self.get_message(&msg_ref.id).await {
-                        Ok(message) => {
-                            debug!("Successfully fetched message {}", msg_ref.id);
-                            // Ensure required fields are set before adding to list
-                            messages.push(message.ensure_required_fields());
-                        }
-                        Err(e) => {
-                            error!("Failed to get message {}: {}", msg_ref.id, e);
-
-                            // Check if this is a missing field error
-                            let error_str = e.to_string();
-                            let is_missing_field = error_str.contains("missing field")
-                                || error_str.contains("internalDate")
-                                || error_str.contains("unknown field")
-                                || error_str.contains("missing key");
-
-                            if is_missing_field {
-                                // Try direct raw message retrieval with custom deserializer as last resort
-                                debug!(
-                                    "Detected missing field, using custom retrieval for {}",
-                                    msg_ref.id
-                                );
-                                match self.try_direct_message_retrieval(&msg_ref.id).await {
-                                    Ok(message) => {
-                                        debug!("Successfully retrieved message {} using custom deserializer", msg_ref.id);
-                                        // Ensure required fields are set
-                                        messages.push(message.ensure_required_fields());
-                                    }
-                                    Err(fallback_err) => {
-                                        error!("All retrieval methods failed for message {}: {} and {}", 
-                                            msg_ref.id, e, fallback_err);
-
-                                        // If the error specifically mentions internalDate, use our last resort placeholder
-                                        if e.to_string().contains("internalDate") || 
-                                           fallback_err.to_string().contains("internalDate") {
-                                            debug!("Using minimal message placeholder for {} due to internalDate error", msg_ref.id);
-                                            messages.push(self.create_minimal_message(&msg_ref.id).ensure_required_fields());
-                                        } else {
-                                            // Skip this message for non-internalDate related errors
-                                            debug!("Skipping message {} due to retrieval errors", msg_ref.id);
-                                        }
-                                    }
-                                }
-                            } else {
-                                error!("Non-format error retrieving message {}: {}", msg_ref.id, e);
-                                // Continue with other messages instead of failing completely
-                            }
-                        }
-                    }
-                }
-
-                info!("Successfully fetched {}/{} messages", messages.len(), count);
-                Ok(messages)
+                // Use separate array for each case
+                let params = [("maxResults", max_results_str.as_str()), ("q", q)];
+                self.request_raw(reqwest::Method::GET, endpoint, Some(&params)).await
             } else {
-                debug!("No messages found in API response");
-                Ok(Vec::new())
+                let params = [("maxResults", max_results_str.as_str())];
+                self.request_raw(reqwest::Method::GET, endpoint, Some(&params)).await
             }
         }
 
-        /// Apply JSON patching functionality for messages with missing fields
-        /// This approach handles various field requirements for the Message struct
-        async fn patch_and_deserialize_message(&self, message_id: &str, format: &str) -> Result<Message> {
-            debug!(
-                "Attempting to retrieve message {} with format '{}' and apply JSON patches",
-                message_id, format
-            );
-            
-            // This is a cleaner approach to handle API response issues
-            // First get the raw response from the API (should be JSON)
-            let mut request = self.client.messages_get(message_id, "me");
-            
-            // Set the format
-            request = request.format(format);
-            
-            // Add headers for metadata format
-            if format == "metadata" {
-                request = request.metadata_headers(&["Subject", "From", "To", "Date"]);
-            }
-            
-            // Execute the request
-            let response = request.await.map_err(|e| {
-                error!("Failed to get message with format {}: {}", format, e);
-                GmailServiceError::ApiError(e.to_string())
-            })?;
-            
-            // Process using our custom deserializer functions in the gmail_custom module
-            // to add any missing fields
-            use crate::gmail_custom::MessageExt;
-            Ok(response.ensure_required_fields())
-        }
-        
-        /// Try to retrieve a message with minimal format, which is less likely 
-        /// to have complex field structure that could cause parsing errors
-        async fn try_minimal_format(&self, message_id: &str) -> Result<Message> {
-            debug!("Falling back to minimal format");
-            
-            let minimal_msg = self.patch_and_deserialize_message(message_id, "minimal").await?;
-            debug!("Successfully retrieved message with minimal format");
-            
-            // If minimal format has empty headers, try to get headers via metadata request
-            if minimal_msg.payload.headers.is_empty() {
-                debug!("No headers in minimal format, attempting to get metadata");
-                match self.patch_and_deserialize_message(message_id, "metadata").await {
-                    Ok(metadata_msg) => {
-                        debug!(
-                            "Successfully retrieved metadata with {} headers",
-                            metadata_msg.payload.headers.len()
-                        );
-                        
-                        // Create a new message with headers from metadata and other fields from minimal
-                        let mut enhanced_msg = minimal_msg.clone();
-                        enhanced_msg.payload.headers = metadata_msg.payload.headers;
-                        Ok(enhanced_msg)
-                    }
-                    Err(e) => {
-                        debug!("Failed to get metadata, but continuing with minimal format: {}", e);
-                        Ok(minimal_msg)
-                    }
-                }
-            } else {
-                Ok(minimal_msg)
-            }
-        }
-        
-        /// Attempt direct message retrieval as a fallback
-        /// This is primarily a wrapper for try_minimal_format for clarity in the calling code
-        async fn try_direct_message_retrieval(&self, message_id: &str) -> Result<Message> {
-            debug!(
-                "Attempting direct message retrieval with fallback options for ID: {}",
-                message_id
-            );
-            
-            // Direct retrieval now uses the cleaner try_minimal_format approach
-            self.try_minimal_format(message_id).await
-        }
-
-        /// Return the raw JSON response of labels from Gmail API without any transformation or modification
-        pub async fn list_labels(&self) -> Result<String> {
+        /// List labels and return raw JSON response
+        pub async fn list_labels(&mut self) -> Result<String> {
             debug!("Listing labels");
-            let response = self
-                .client
-                .labels_list("me")
-                .await
-                .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
             
-            // Convert directly to JSON string without any processing or transformation
-            match serde_json::to_string_pretty(&response) {
-                Ok(json) => Ok(json),
-                Err(e) => Err(GmailServiceError::ApiError(format!(
-                    "JSON serialization error: {}",
-                    e
-                )))
-            }
+            let endpoint = "/users/me/labels";
+            self.request_raw(reqwest::Method::GET, endpoint, None).await
         }
 
-        /// Return the raw JSON response of user profile from Gmail API without any transformation or modification
-        pub async fn check_connection_raw(&self) -> Result<String> {
+        /// Check connection by getting profile and return raw JSON response
+        pub async fn check_connection_raw(&mut self) -> Result<String> {
             debug!("Checking connection raw");
-            let profile = self
-                .client
-                .get_profile("me")
-                .await
-                .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
             
-            // Convert directly to JSON string without any processing or transformation
-            match serde_json::to_string_pretty(&profile) {
-                Ok(json) => Ok(json),
-                Err(e) => Err(GmailServiceError::ApiError(format!(
-                    "JSON serialization error: {}",
-                    e
-                )))
-            }
+            let endpoint = "/users/me/profile";
+            self.request_raw(reqwest::Method::GET, endpoint, None).await
         }
         
-        pub async fn check_connection(&self) -> Result<(String, u64)> {
+        /// Check connection by getting profile and return email and message count
+        pub async fn check_connection(&mut self) -> Result<(String, u64)> {
             debug!("Checking connection");
-            let profile = self
-                .client
-                .get_profile("me")
-                .await
-                .map_err(|e| GmailServiceError::ApiError(e.to_string()))?;
-
-            let email = profile
-                .email_address
-                .unwrap_or_else(|| "Unknown".to_string());
-            let messages_total = profile.messages_total.unwrap_or(0) as u64;
-
+            
+            let endpoint = "/users/me/profile";
+            
+            #[derive(Deserialize)]
+            struct Profile {
+                #[serde(rename = "emailAddress")]
+                email_address: String,
+                #[serde(rename = "messagesTotal")]
+                messages_total: Option<u64>,
+            }
+            
+            let profile: Profile = self.request(reqwest::Method::GET, endpoint, None).await?;
+            
+            let email = profile.email_address;
+            let messages_total = profile.messages_total.unwrap_or(0);
+            
             Ok((email, messages_total))
         }
-    }
-
-    fn create_client(config: &Config) -> Result<GmailClient> {
-        debug!("Creating Gmail client with OAuth credentials");
-
-        // Create auth
-        let auth = gmail::GmailAuth::oauth2(
-            config.access_token.clone().unwrap_or_default(),
-            config.refresh_token.clone(),
-            None,
-        );
-
-        // Create and return client
-        let client = GmailClient::with_auth(auth);
-        debug!("Gmail client created successfully");
-
-        Ok(client)
     }
 }
 
@@ -756,238 +594,6 @@ pub mod logging {
     }
 }
 
-// Custom Gmail message handling module to handle API response issues
-pub mod gmail_custom {
-    use gmail::model::Message;
-    use log::{debug, error};
-    
-    // Constants for default values used throughout the module
-    pub mod defaults {
-        /// Default value for missing or invalid internalDate fields
-        /// Set to "0" to represent the Unix epoch (January 1, 1970)
-        pub const INTERNAL_DATE: &str = "0";
-        
-        /// Default value for missing snippet fields
-        pub const SNIPPET: &str = "";
-        
-        /// Default MIME type when not provided
-        pub const MIME_TYPE: &str = "text/plain";
-        
-        /// Default headers capacity for new header collections
-        pub const HEADERS_CAPACITY: usize = 4;
-    }
-    use serde_json::Value;
-
-    // JSON patching module - pure functions for fixing missing fields
-    mod json_patch {
-        use super::defaults;
-        use log::debug;
-        use serde_json::{Map, Value};
-        
-        /// Patch a missing or null internalDate field
-        pub fn ensure_internal_date(json_obj: &mut Map<String, Value>, message_id: &str) -> bool {
-            let mut modified = false;
-            
-            // Check at root level
-            if !json_obj.contains_key("internalDate") || json_obj["internalDate"].is_null() {
-                debug!("Adding internalDate at root level for message {}", message_id);
-                json_obj.insert(
-                    "internalDate".to_string(), 
-                    Value::String(defaults::INTERNAL_DATE.to_string())
-                );
-                modified = true;
-            }
-            
-            // Also log the structure to diagnose
-            if modified {
-                debug!("JSON structure after patching: {}", 
-                       serde_json::to_string_pretty(json_obj).unwrap_or_default().chars().take(500).collect::<String>());
-            }
-            
-            modified
-        }
-        
-        /// Patch a missing or null labelIds field
-        pub fn ensure_label_ids(json_obj: &mut Map<String, Value>, _message_id: &str) -> bool {
-            if !json_obj.contains_key("labelIds") || json_obj["labelIds"].is_null() {
-                json_obj.insert("labelIds".to_string(), Value::Array(vec![]));
-                true
-            } else {
-                false
-            }
-        }
-        
-        /// Patch a missing or null snippet field
-        pub fn ensure_snippet(json_obj: &mut Map<String, Value>, _message_id: &str) -> bool {
-            if !json_obj.contains_key("snippet") || json_obj["snippet"].is_null() {
-                json_obj.insert(
-                    "snippet".to_string(),
-                    Value::String(defaults::SNIPPET.to_string())
-                );
-                true
-            } else {
-                false
-            }
-        }
-        
-        /// Patch a missing or null threadId field, using message_id as fallback
-        pub fn ensure_thread_id(json_obj: &mut Map<String, Value>, message_id: &str) -> bool {
-            if !json_obj.contains_key("threadId") || json_obj["threadId"].is_null() {
-                json_obj.insert("threadId".to_string(), Value::String(message_id.to_string()));
-                true
-            } else {
-                false
-            }
-        }
-        
-        /// Patch a missing or null payload field with default structure
-        pub fn ensure_payload(json_obj: &mut Map<String, Value>, _message_id: &str) -> bool {
-            if !json_obj.contains_key("payload") || json_obj["payload"].is_null() {
-                let mut payload = Map::new();
-                
-                // Add headers with empty array
-                payload.insert("headers".to_string(), Value::Array(vec![]));
-                
-                // Add mimeType (required)
-                payload.insert(
-                    "mimeType".to_string(),
-                    Value::String(defaults::MIME_TYPE.to_string())
-                );
-                
-                // Add payload to the message
-                json_obj.insert("payload".to_string(), Value::Object(payload));
-                true
-            } else if let Value::Object(ref mut payload) = json_obj["payload"] {
-                let mut modified = false;
-                
-                // Ensure headers exist in payload
-                if !payload.contains_key("headers") || payload["headers"].is_null() {
-                    payload.insert("headers".to_string(), Value::Array(vec![]));
-                    modified = true;
-                }
-                
-                // Ensure mimeType exists
-                if !payload.contains_key("mimeType") || payload["mimeType"].is_null() {
-                    payload.insert(
-                        "mimeType".to_string(),
-                        Value::String(defaults::MIME_TYPE.to_string())
-                    );
-                    modified = true;
-                }
-                
-                modified
-            } else {
-                false
-            }
-        }
-        
-        /// Apply all patches to ensure a valid Gmail message JSON structure
-        pub fn patch_gmail_message(json_value: &mut Value) -> (bool, String) {
-            let mut modified = false;
-            let message_id;
-            
-            // Handle the JSON object
-            if let Value::Object(ref mut map) = json_value {
-                // Extract the message ID for better logging and diagnostic
-                message_id = map
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                
-                // Apply all patches
-                modified |= ensure_internal_date(map, &message_id);
-                modified |= ensure_label_ids(map, &message_id);
-                modified |= ensure_snippet(map, &message_id);
-                modified |= ensure_thread_id(map, &message_id);
-                modified |= ensure_payload(map, &message_id);
-            } else {
-                message_id = "unknown".to_string();
-            }
-            
-            (modified, message_id)
-        }
-    }
-
-    /// Custom message deserializer to handle missing fields in Gmail API responses
-    /// This function attempts to deserialize a JSON response into a Message struct,
-    /// filling in missing fields with default values
-    pub fn deserialize_custom_message(json_str: &String) -> Result<Message, serde_json::Error> {
-        use log::{debug, error, info};
-        
-        debug!("Deserializing custom message from JSON");
-        
-        // Log a preview of the JSON string to help with debugging
-        if json_str.len() > 500 {
-            debug!("JSON preview (first 500 chars): {}", json_str.chars().take(500).collect::<String>());
-        } else {
-            debug!("JSON string: {}", json_str);
-        }
-
-        // First, parse the JSON into a generic Value
-        let mut json_value: Value = serde_json::from_str(json_str)?;
-
-        debug!("Parsed JSON into Value object, checking for missing fields");
-        
-        // Log message ID if present
-        if let Some(id) = json_value.get("id").and_then(|id| id.as_str()) {
-            info!("Processing message with ID: {}", id);
-        }
-        
-        // Check for internalDate field specifically before patching
-        if !json_value.get("internalDate").is_some() {
-            debug!("internalDate field is missing from the original JSON");
-        }
-
-        // Apply all the patches to ensure required fields exist
-        let (modified, message_id) = json_patch::patch_gmail_message(&mut json_value);
-        
-        if modified {
-            debug!("Applied JSON patches to message ID: {}", message_id);
-        }
-
-        // Now try to deserialize the patched JSON
-        match serde_json::from_value::<Message>(json_value.clone()) {
-            Ok(message) => {
-                debug!("Successfully deserialized message with ID: {}", message.id);
-                Ok(message)
-            }
-            Err(e) => {
-                error!("Failed to deserialize message even after patching: {}", e);
-                // For debugging, print the JSON structure after our patches
-                debug!(
-                    "Patched JSON structure: {}",
-                    serde_json::to_string_pretty(&json_value).unwrap_or_default()
-                );
-
-                // We can't manually construct a Message
-                error!("Failed to parse message due to: {}", e);
-                Err(e)
-            }
-        }
-    }
-
-    /// Extend gmail-rs Message for our needs
-    pub trait MessageExt {
-        /// Add default values to any missing fields in a Message
-        fn ensure_required_fields(self) -> Self;
-    }
-
-    impl MessageExt for Message {
-        fn ensure_required_fields(mut self) -> Self {
-            // Ensure internalDate is not empty
-            if self.internal_date.is_empty() {
-                debug!("Adding default internal_date for message {}", self.id);
-                self.internal_date = defaults::INTERNAL_DATE.to_string();
-            }
-
-            // Add more field validations as needed
-
-            self
-        }
-    }
-}
-
 // Module with the server implementation
 pub mod server {
     use log::{debug, error, info};
@@ -996,7 +602,7 @@ pub mod server {
     use mcp_attr::{Error as McpError, Result as McpResult};
 
     use crate::config::{Config, ConfigError};
-    use crate::gmail_service::{GmailService, GmailServiceError};
+    use crate::gmail_api::{GmailService, GmailApiError};
     
     // Helper functions 
     mod helpers {
@@ -1055,10 +661,6 @@ pub mod server {
         }
     }
 
-    // MCP server for accessing Gmail API
-    #[derive(Clone)]
-    pub struct GmailServer;
-
     // Enum of error codes used by the Gmail MCP server with detailed descriptions
     mod error_codes {
         /// Configuration related errors (environment variables, etc.)
@@ -1102,6 +704,10 @@ pub mod server {
         }
     }
 
+    // MCP server for accessing Gmail API
+    #[derive(Clone)]
+    pub struct GmailServer;
+
     impl GmailServer {
         pub fn new() -> Self {
             GmailServer {}
@@ -1132,10 +738,10 @@ pub mod server {
             McpError::new(ErrorCode(code as i64)).with_message(detailed_error, true)
         }
 
-        // Helper function to map GmailServiceError to detailed McpError with specific codes
-        fn map_gmail_error(&self, err: GmailServiceError) -> McpError {
+        // Helper function to map GmailApiError to detailed McpError with specific codes
+        fn map_gmail_error(&self, err: GmailApiError) -> McpError {
             match err {
-                GmailServiceError::ApiError(e) => {
+                GmailApiError::ApiError(e) => {
                     // Analyze the error message to provide more context
                     let (code, detailed_msg) = if e.contains("quota") || e.contains("rate") || e.contains("limit") {
                         (
@@ -1172,8 +778,7 @@ pub mod server {
                             error_codes::MESSAGE_FORMAT_ERROR,
                             format!(
                                 "Gmail API response format error: {}. The API returned data in an unexpected format. \
-                                This might be due to changes in the Gmail API or issues with specific messages. \
-                                The server attempted multiple fallback strategies but still couldn't process the response.", 
+                                This might be due to changes in the Gmail API or issues with specific messages.", 
                                 e
                             )
                         )
@@ -1200,7 +805,7 @@ pub mod server {
                     
                     self.to_mcp_error(&detailed_msg, code)
                 },
-                GmailServiceError::AuthError(e) => {
+                GmailApiError::AuthError(e) => {
                     let detailed_msg = format!(
                         "Gmail authentication error: {}. Failed to authenticate with the Gmail API using the provided \
                         credentials. Please verify your client ID, client secret, and refresh token.", 
@@ -1208,25 +813,22 @@ pub mod server {
                     );
                     self.to_mcp_error(&detailed_msg, error_codes::AUTH_ERROR)
                 },
-                GmailServiceError::MessageRetrievalError(e) => {
+                GmailApiError::MessageRetrievalError(e) => {
                     let detailed_msg = format!(
                         "Message retrieval error: {}. Failed to retrieve the requested message from Gmail. \
-                        This may be due to the message being deleted, access permissions, or temporary Gmail API issues. \
-                        The server attempted multiple fallback strategies but couldn't retrieve the message.", 
+                        This may be due to the message being deleted, access permissions, or temporary Gmail API issues.", 
                         e
                     );
                     self.to_mcp_error(&detailed_msg, error_codes::API_ERROR)
                 },
-                GmailServiceError::MessageFormatError(e) => {
+                GmailApiError::MessageFormatError(e) => {
                     let detailed_msg = format!(
-                        "Message format error: {}. The Gmail API returned a malformed message or one with missing required fields. \
-                        The server tried multiple approaches to fix the issue but couldn't process the message correctly. \
-                        This typically happens with certain types of messages that have unusual formats or corrupt data.", 
+                        "Message format error: {}. The Gmail API returned a malformed message or one with missing required fields.", 
                         e
                     );
                     self.to_mcp_error(&detailed_msg, error_codes::MESSAGE_FORMAT_ERROR)
                 },
-                GmailServiceError::NetworkError(e) => {
+                GmailApiError::NetworkError(e) => {
                     let detailed_msg = format!(
                         "Network error: {}. The server couldn't establish a connection to the Gmail API. \
                         This might be due to network configuration issues, outages, or firewall restrictions. \
@@ -1235,7 +837,7 @@ pub mod server {
                     );
                     self.to_mcp_error(&detailed_msg, error_codes::API_ERROR)
                 },
-                GmailServiceError::RateLimitError(e) => {
+                GmailApiError::RateLimitError(e) => {
                     let detailed_msg = format!(
                         "Rate limit error: {}. The Gmail API has rate-limited the server's requests. \
                         This happens when too many requests are made in a short period of time. \
@@ -1287,7 +889,7 @@ pub mod server {
     impl McpServer for GmailServer {
         /// Gmail MCP Server
         ///
-        /// This MCP server provides access to Gmail using the gmail-rs crate.
+        /// This MCP server provides direct access to the Gmail API using reqwest.
         /// It requires the following environment variables to be set:
         /// - GMAIL_CLIENT_ID
         /// - GMAIL_CLIENT_SECRET
@@ -1322,7 +924,7 @@ pub mod server {
             let max = helpers::parse_max_results(max_results, 10);
 
             // Get the Gmail service
-            let service = self.init_gmail_service().await?;
+            let mut service = self.init_gmail_service().await?;
 
             // Get raw message list JSON directly from the API without transformation
             let messages_json = match service.list_messages_raw(max, query.as_deref()).await {
@@ -1360,7 +962,7 @@ pub mod server {
             debug!("get_email called with message_id={}", message_id);
 
             // Get the Gmail service
-            let service = self.init_gmail_service().await?;
+            let mut service = self.init_gmail_service().await?;
 
             // Get message as raw JSON
             let message_json = match service.get_message_raw(&message_id).await {
@@ -1405,7 +1007,7 @@ pub mod server {
             let max = helpers::parse_max_results(max_results, 10);
             
             // Get the Gmail service
-            let service = self.init_gmail_service().await?;
+            let mut service = self.init_gmail_service().await?;
             
             // Get raw message list JSON
             let messages_json = match service.list_messages_raw(max, Some(&query)).await {
@@ -1435,7 +1037,7 @@ pub mod server {
             debug!("list_labels called");
 
             // Get the Gmail service
-            let service = self.init_gmail_service().await?;
+            let mut service = self.init_gmail_service().await?;
 
             // Get labels
             match service.list_labels().await {
@@ -1462,7 +1064,7 @@ pub mod server {
             debug!("check_connection called");
 
             // Get the Gmail service
-            let service = self.init_gmail_service().await?;
+            let mut service = self.init_gmail_service().await?;
 
             // Get profile as raw JSON
             let profile_json = match service.check_connection_raw().await {
@@ -1480,6 +1082,456 @@ pub mod server {
 
             info!("=== END check_connection MCP command (success) ===");
             Ok(profile_json)
+        }
+    }
+}
+
+// OAuth authentication module for token refresh flow
+pub mod auth {
+    use crate::config::Config;
+    use axum::extract::Query;
+    use axum::response::Html;
+    use axum::routing::get;
+    use axum::Router;
+    use dotenv::dotenv;
+    use log::error;
+    use rand::distributions::{Alphanumeric, DistString};
+    use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
+    use std::env;
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::net::SocketAddr;
+    use std::path::Path;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use url::Url;
+
+    // OAuth scopes needed for Gmail access
+    const GMAIL_SCOPE: &str = "https://mail.google.com/";
+    const OAUTH_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/auth";
+    const OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+    
+    // Local server config
+    const DEFAULT_PORT: u16 = 8080;
+    const DEFAULT_HOST: &str = "127.0.0.1";
+
+    // Structure to hold the OAuth state
+    #[derive(Clone, Debug, Default)]
+    struct OAuthState {
+        auth_code: Option<String>,
+        state_token: Option<String>,
+        complete: bool,
+    }
+
+    // Structure for OAuth authorization parameters
+    #[derive(Debug, Serialize)]
+    struct AuthParams {
+        client_id: String,
+        redirect_uri: String,
+        response_type: String,
+        scope: String,
+        state: String,
+        access_type: String,
+        prompt: String,
+    }
+
+    // Structure for the callback query parameters
+    #[derive(Debug, Deserialize)]
+    struct CallbackParams {
+        code: Option<String>,
+        state: Option<String>,
+        error: Option<String>,
+    }
+
+    // Structure for the token response
+    #[derive(Debug, Deserialize)]
+    struct TokenResponse {
+        access_token: String,
+        expires_in: u64,
+        refresh_token: String,
+        token_type: String,
+        scope: Option<String>,
+    }
+
+    // Run the OAuth flow to get a new refresh token
+    pub async fn run_oauth_flow() -> Result<(), String> {
+        // Attempt to load existing credentials
+        let _ = dotenv();
+        
+        // Get client ID and secret from environment or prompt user
+        let client_id = env::var("GMAIL_CLIENT_ID").unwrap_or_else(|_| {
+            println!("Enter your Google OAuth client ID:");
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).expect("Failed to read input");
+            input.trim().to_string()
+        });
+
+        let client_secret = env::var("GMAIL_CLIENT_SECRET").unwrap_or_else(|_| {
+            println!("Enter your Google OAuth client secret:");
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).expect("Failed to read input");
+            input.trim().to_string()
+        });
+        
+        // Generate a random state token for CSRF protection
+        let state_token = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        
+        // Set up the redirect URI for the local callback server
+        let port = env::var("OAUTH_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(DEFAULT_PORT);
+            
+        let host = env::var("OAUTH_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string());
+        let redirect_uri = format!("http://{}:{}/oauth/callback", host, port);
+        
+        // Create a shared state to store the authorization code
+        let oauth_state = Arc::new(Mutex::new(OAuthState {
+            auth_code: None,
+            state_token: Some(state_token.clone()),
+            complete: false,
+        }));
+        
+        // Build the authorization URL
+        let auth_url = build_auth_url(
+            &client_id,
+            &redirect_uri,
+            &state_token,
+            &[GMAIL_SCOPE.to_string()],
+        )?;
+        
+        // Start the local web server to handle the OAuth callback
+        let server_handle = start_oauth_server(port, host.clone(), oauth_state.clone());
+        
+        // Open the authorization URL in the default browser
+        println!("Opening browser to authorize with Google...");
+        println!("\nAuthorization URL: {}", auth_url);
+        
+        if let Err(e) = webbrowser::open(&auth_url) {
+            println!("Failed to open web browser automatically: {}", e);
+            println!("Please manually open the URL in your browser to continue.");
+        }
+        
+        // Wait for the authorization to complete
+        println!("Waiting for authorization...");
+        let auth_code = wait_for_auth_code(oauth_state).await?;
+        
+        // Exchange the authorization code for tokens
+        println!("Exchanging authorization code for tokens...");
+        let tokens = exchange_code_for_tokens(
+            &client_id,
+            &client_secret,
+            &auth_code,
+            &redirect_uri,
+        ).await?;
+        
+        // Update the .env file with the new tokens
+        println!("Updating credentials in .env file...");
+        update_env_file(
+            &client_id,
+            &client_secret,
+            &tokens.refresh_token,
+            &tokens.access_token,
+            &redirect_uri,
+        )?;
+        
+        // Shut down the server
+        server_handle.abort();
+        
+        println!("\n🎉 Authentication successful! New tokens have been saved to .env file.");
+        
+        Ok(())
+    }
+    
+    // Build the authorization URL
+    fn build_auth_url(
+        client_id: &str,
+        redirect_uri: &str,
+        state: &str,
+        scopes: &[String],
+    ) -> Result<String, String> {
+        let mut url = Url::parse(OAUTH_AUTH_URL).map_err(|e| e.to_string())?;
+        
+        // Add required OAuth parameters
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("client_id", client_id);
+            query.append_pair("redirect_uri", redirect_uri);
+            query.append_pair("response_type", "code");
+            query.append_pair("scope", &scopes.join(" "));
+            query.append_pair("state", state);
+            query.append_pair("access_type", "offline");
+            query.append_pair("prompt", "consent"); // Ensure we always get a refresh token
+            query.finish();
+        }
+        
+        // Return the URL
+        Ok(url.to_string())
+    }
+    
+    // Start a local web server to handle the OAuth callback
+    fn start_oauth_server(
+        port: u16,
+        host: String,
+        state: Arc<Mutex<OAuthState>>,
+    ) -> tokio::task::JoinHandle<()> {
+        // Create the router with callback and index routes
+        let app = Router::new()
+            .route("/", get(|| async { Html("<h1>Gmail OAuth Server</h1><p>Waiting for OAuth callback...</p>") }))
+            .route("/oauth/callback", get(move |query| handle_callback(query, state.clone())));
+        
+        // Start the server in a background task
+        tokio::spawn(async move {
+            let addr = format!("{host}:{port}").parse::<SocketAddr>().unwrap();
+            println!("\nStarting OAuth callback server on http://{host}:{port}");
+            
+            let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+            if let Err(e) = axum::serve(listener, app).await {
+                error!("Server error: {}", e);
+            }
+        })
+    }
+    
+    // Handle the OAuth callback from Google
+    async fn handle_callback(
+        Query(params): Query<CallbackParams>,
+        state: Arc<Mutex<OAuthState>>,
+    ) -> Html<String> {
+        let mut oauth_state = state.lock().await;
+        
+        // Check for errors
+        if let Some(error) = params.error {
+            oauth_state.complete = true;
+            return Html(format!("<html>
+<head><title>OAuth Error</title></head>
+<body>
+    <h1>OAuth Error</h1>
+    <p>An error occurred during authentication: {}</p>
+    <p>Please close this window and try again.</p>
+</body>
+</html>", error));
+        }
+        
+        // Check state token to prevent CSRF attacks
+        if params.state != oauth_state.state_token {
+            oauth_state.complete = true;
+            return Html("<html>
+<head><title>Authentication Failed</title></head>
+<body>
+    <h1>Authentication Failed</h1>
+    <p>Invalid state parameter. This could be a CSRF attack attempt.</p>
+    <p>Please close this window and try again.</p>
+</body>
+</html>".to_string());
+        }
+        
+        // Store the authorization code
+        if let Some(code) = params.code {
+            oauth_state.auth_code = Some(code);
+            oauth_state.complete = true;
+            
+            // Return success page
+            Html("<html>
+<head>
+    <title>Authentication Successful</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        h1 { color: #4285f4; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Gmail OAuth Authentication</h1>
+    <h2 class=\"success\">Authentication Successful! ✅</h2>
+    <p>You have successfully authenticated with Google.</p>
+    <p>You can now close this window and return to the application.</p>
+</body>
+</html>".to_string())
+        } else {
+            oauth_state.complete = true;
+            
+            // Missing authorization code
+            Html("<html>
+<head><title>Authentication Failed</title></head>
+<body>
+    <h1>Authentication Failed</h1>
+    <p>No authorization code received from Google.</p>
+    <p>Please close this window and try again.</p>
+</body>
+</html>".to_string())
+        }
+    }
+    
+    // Wait for the authorization code to be received
+    async fn wait_for_auth_code(state: Arc<Mutex<OAuthState>>) -> Result<String, String> {
+        // Poll for the authorization code with a timeout
+        let max_wait_seconds = 300; // 5 minutes
+        let poll_interval = std::time::Duration::from_secs(1);
+        
+        for _ in 0..max_wait_seconds {
+            let oauth_state = state.lock().await;
+            
+            // Check if we have the authorization code
+            if let Some(code) = oauth_state.auth_code.clone() {
+                return Ok(code);
+            }
+            
+            // Check if the flow completed with an error
+            if oauth_state.complete {
+                return Err("Authorization failed. Check the browser for details.".to_string());
+            }
+            
+            // Release the lock and wait before trying again
+            drop(oauth_state);
+            tokio::time::sleep(poll_interval).await;
+        }
+        
+        Err("Timed out waiting for authorization. Please try again.".to_string())
+    }
+    
+    // Exchange the authorization code for access and refresh tokens
+    async fn exchange_code_for_tokens(
+        client_id: &str,
+        client_secret: &str,
+        auth_code: &str,
+        redirect_uri: &str,
+    ) -> Result<TokenResponse, String> {
+        let client = reqwest::Client::new();
+        
+        // Prepare the token request parameters
+        let params = [
+            ("code", auth_code),
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+            ("redirect_uri", redirect_uri),
+            ("grant_type", "authorization_code"),
+        ];
+        
+        // Make the token request
+        let response = client
+            .post(OAUTH_TOKEN_URL)
+            .form(&params)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to exchange code for tokens: {}", e))?;
+        
+        // Check for error responses
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await
+                .unwrap_or_else(|_| "<no response body>".to_string());
+                
+            return Err(format!(
+                "Failed to exchange code for tokens. Status: {}, Error: {}",
+                status, error_text
+            ));
+        }
+        
+        // Parse the token response
+        let tokens: TokenResponse = response.json().await
+            .map_err(|e| format!("Failed to parse token response: {}", e))?;
+        
+        Ok(tokens)
+    }
+    
+    // Update the .env file with the new tokens
+    fn update_env_file(
+        client_id: &str,
+        client_secret: &str,
+        refresh_token: &str,
+        access_token: &str,
+        redirect_uri: &str,
+    ) -> Result<(), String> {
+        // Check if .env file exists
+        let env_path = ".env";
+        let env_exists = Path::new(env_path).exists();
+        
+        // Create or update the .env file
+        if env_exists {
+            // Read existing .env content
+            let content = std::fs::read_to_string(env_path)
+                .map_err(|e| format!("Failed to read .env file: {}", e))?;
+                
+            // Parse the content into a HashMap
+            let mut env_vars = HashMap::new();
+            for line in content.lines() {
+                // Skip comments and empty lines
+                if line.starts_with('#') || line.trim().is_empty() {
+                    continue;
+                }
+                
+                // Parse key-value pairs
+                if let Some(pos) = line.find('=') {
+                    let key = line[..pos].trim().to_string();
+                    let value = line[pos+1..].trim().to_string();
+                    env_vars.insert(key, value);
+                }
+            }
+            
+            // Update the values
+            env_vars.insert("GMAIL_CLIENT_ID".to_string(), client_id.to_string());
+            env_vars.insert("GMAIL_CLIENT_SECRET".to_string(), client_secret.to_string());
+            env_vars.insert("GMAIL_REFRESH_TOKEN".to_string(), refresh_token.to_string());
+            env_vars.insert("GMAIL_ACCESS_TOKEN".to_string(), access_token.to_string());
+            env_vars.insert("GMAIL_REDIRECT_URI".to_string(), redirect_uri.to_string());
+            
+            // Build the new content
+            let mut new_content = String::new();
+            new_content.push_str("# Gmail API OAuth2 credentials\n");
+            for (key, value) in &env_vars {
+                new_content.push_str(&format!("{key}={value}\n"));
+            }
+            
+            // Write the updated content back to the file
+            std::fs::write(env_path, new_content)
+                .map_err(|e| format!("Failed to write to .env file: {}", e))?;
+                
+        } else {
+            // Create a new .env file
+            let mut file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(env_path)
+                .map_err(|e| format!("Failed to create .env file: {}", e))?;
+                
+            // Write the credentials
+            writeln!(file, "# Gmail API OAuth2 credentials")
+                .map_err(|e| format!("Failed to write to .env file: {}", e))?;
+            writeln!(file, "GMAIL_CLIENT_ID={}", client_id)
+                .map_err(|e| format!("Failed to write to .env file: {}", e))?;
+            writeln!(file, "GMAIL_CLIENT_SECRET={}", client_secret)
+                .map_err(|e| format!("Failed to write to .env file: {}", e))?;
+            writeln!(file, "GMAIL_REFRESH_TOKEN={}", refresh_token)
+                .map_err(|e| format!("Failed to write to .env file: {}", e))?;
+            writeln!(file, "GMAIL_ACCESS_TOKEN={}", access_token)
+                .map_err(|e| format!("Failed to write to .env file: {}", e))?;
+            writeln!(file, "GMAIL_REDIRECT_URI={}", redirect_uri)
+                .map_err(|e| format!("Failed to write to .env file: {}", e))?;
+        }
+        
+        Ok(())
+    }
+    
+    // Utility to test the saved credentials
+    pub async fn test_credentials() -> Result<String, String> {
+        // Load the config from environment
+        let config = Config::from_env()
+            .map_err(|e| format!("Failed to load credentials: {}", e))?;
+        
+        // Create a Gmail service client
+        let mut service = crate::gmail_api::GmailService::new(&config)
+            .map_err(|e| format!("Failed to create Gmail service: {}", e))?;
+        
+        // Try to check the connection
+        match service.check_connection().await {
+            Ok((email, count)) => {
+                Ok(format!("Successfully connected to Gmail for {}! Found {} messages.", email, count))
+            },
+            Err(e) => {
+                Err(format!("Failed to connect to Gmail: {}", e))
+            }
         }
     }
 }
