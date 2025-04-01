@@ -1,10 +1,10 @@
-# 📧 Gmail MCP Server
+# 📧 Gmail & Calendar MCP Server
 
-Welcome to the **Gmail MCP Server**! This is a Model Completion Protocol (MCP) server designed to interact seamlessly with the Gmail API, empowering Claude to read and manage emails from your Gmail account. 🚀
+Welcome to the **Gmail & Calendar MCP Server**! This is a Model Completion Protocol (MCP) server designed to interact seamlessly with the Gmail and Google Calendar APIs, empowering Claude to read and manage emails and calendar events from your Google account. 🚀
 
 ## 📜 Summary of Project
 
-The Gmail MCP Server is built on Rust, providing a robust and efficient interface to the Gmail API. Through this server, users can perform various functionalities like:
+The MCP Server is built on Rust, providing a robust and efficient interface to the Google APIs. Through this server, users can perform various functionalities like:
 - Listing emails from their inbox 📬
 - Searching for emails using Gmail search queries 🔍
 - Getting details of specific emails 📑
@@ -12,8 +12,12 @@ The Gmail MCP Server is built on Rust, providing a robust and efficient interfac
 - Batch analyzing multiple emails for quick triage 📋
 - Listing all email labels 🏷️
 - Checking connection status with the Gmail API 📡
+- Listing available calendars 📅
+- Retrieving calendar events 🗓️
+- Getting details of specific calendar events 🎯
+- Creating new calendar events 📝
 
-This server enhances Claude's email analysis capabilities with specialized prompts for email analysis, summarization, task extraction, meeting detection, contact extraction, prioritization, and more.
+This server enhances Claude's email and calendar management capabilities with specialized prompts for email analysis, summarization, task extraction, meeting detection, contact extraction, prioritization, and more.
 
 ## ⚙️ How to Use
 
@@ -66,6 +70,8 @@ This will use in-memory logging (via stderr) instead of attempting to write log 
 
 ### 🛠 Usage in Claude
 You can directly use tools through commands like:
+
+#### Email Commands
 ```
 /tool list_emails max_results=5
 /tool search_emails query="from:example.com after:2024/01/01" max_results=10
@@ -76,7 +82,17 @@ You can directly use tools through commands like:
 /tool check_connection
 ```
 
+#### Calendar Commands
+```
+/tool list_calendars
+/tool list_events calendar_id="primary" max_results=10 time_min="2024-03-01T00:00:00Z" time_max="2024-04-01T00:00:00Z"
+/tool get_event calendar_id="primary" event_id="abc123event456id"
+/tool create_event summary="Team Meeting" description="Weekly sync" location="Conference Room A" start_time="2024-04-10T14:00:00Z" end_time="2024-04-10T15:00:00Z" attendees=["person1@example.com", "person2@example.com"]
+```
+
 Or through natural language requests:
+
+#### Email Requests
 - "Check my Gmail connection status"
 - "Show me my 5 most recent unread emails"
 - "Search for emails from example.com sent this year"
@@ -86,6 +102,14 @@ Or through natural language requests:
 - "Summarize these 3 emails for me"
 - "Find all contact information in this email"
 - "Help me prioritize these emails"
+
+#### Calendar Requests
+- "Show me all my calendars"
+- "List my upcoming events for next week"
+- "Show me details for the team meeting on Friday"
+- "Create a new meeting titled 'Project Review' for tomorrow at 2pm with team@example.com"
+- "What events do I have scheduled between April 1 and April 15?"
+- "Schedule a doctor's appointment for next Monday at 10am"
 
 ## 📝 Advanced Email Analysis
 
@@ -113,19 +137,39 @@ These analysis features help users quickly understand email content, extract imp
 - **Primary Dependencies**:
   - `mcp-attr` - For MCP server implementation
   - `tokio` - Asynchronous runtime
-  - `reqwest` - HTTP client for Gmail API
+  - `reqwest` - HTTP client for Google APIs
   - `serde` and `serde_json` - For JSON serialization
   - `dotenv` - For environment variable management
   - `log`, `simplelog`, and `chrono` - For logging functionality
+  - `uuid` - For generating unique request IDs
+  - `chrono` - For datetime handling
 - **Testing**: Includes a comprehensive suite of unit and integration tests to ensure reliability and performance.
+
+## 📅 Calendar Management
+
+The Google Calendar integration provides a set of tools to manage your calendar events through Claude:
+
+### Calendar Features
+- **List Calendars**: View all calendars you have access to
+- **List Events**: Get events from any calendar with optional filtering by date range
+- **Get Event Details**: Retrieve complete information about a specific event
+- **Create Events**: Schedule new events with titles, descriptions, times, locations, and attendees
+
+### Calendar Permissions
+The Calendar API uses the same OAuth credentials as the Gmail API, but requires the following additional scopes:
+- `https://www.googleapis.com/auth/calendar.readonly` (for reading calendars and events)
+- `https://www.googleapis.com/auth/calendar` (for creating and modifying events)
+
+You can modify your OAuth consent screen to include these scopes when setting up your Google Cloud project.
 
 ### Project Structure
 ```
 src/
-  ├── lib.rs          # Main implementation including Gmail API client and MCP server
+  ├── lib.rs          # Main implementation including API clients and MCP server
   ├── main.rs         # Command-line interface and server startup
   ├── config.rs       # Configuration handling
   ├── gmail_api.rs    # Gmail API client implementation
+  ├── calendar_api.rs # Google Calendar API client implementation
   ├── logging.rs      # Logging setup
   ├── server.rs       # MCP server implementation
   └── prompts.rs      # Email analysis prompts

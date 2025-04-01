@@ -105,7 +105,7 @@ pub mod gmail_api {
 
     // OAuth token manager
     #[derive(Debug, Clone)]
-    struct TokenManager {
+    pub struct TokenManager {
         access_token: String,
         expiry: SystemTime,
         refresh_token: String,
@@ -114,7 +114,7 @@ pub mod gmail_api {
     }
 
     impl TokenManager {
-        fn new(config: &Config) -> Self {
+        pub fn new(config: &Config) -> Self {
             let expiry = if config.access_token.is_some() {
                 // If we have an initial access token, set expiry to 10 minutes from now
                 // This is conservative but ensures we'll refresh soon if needed
@@ -133,7 +133,7 @@ pub mod gmail_api {
             }
         }
 
-        async fn get_token(&mut self, client: &Client) -> Result<String> {
+        pub async fn get_token(&mut self, client: &Client) -> Result<String> {
             // Debug log the initial state
             debug!(
                 "Token status check - have token: {}, valid: {}",
@@ -1089,6 +1089,21 @@ pub mod server {
         pub fn new() -> Self {
             GmailServer {}
         }
+        
+        // Private method to initialize the Calendar service
+        async fn init_calendar_service(&self) -> Result<crate::calendar_api::CalendarClient, McpError> {
+            // Load the config
+            let config = Config::from_env().map_err(|e| {
+                error!("Failed to load OAuth configuration: {}", e);
+                self.to_mcp_error(
+                    &format!("Configuration error: {}", e),
+                    error_codes::CONFIG_ERROR,
+                )
+            })?;
+
+            // Create the calendar client
+            Ok(crate::calendar_api::CalendarClient::new(&config))
+        }
 
         // Helper function to create detailed McpError with appropriate error code and context
         fn to_mcp_error(&self, message: &str, code: u32) -> McpError {
@@ -1892,6 +1907,293 @@ pub mod server {
                     );
 
                     Err(self.map_gmail_error(err))
+                }
+            }
+        }
+        
+        /// List all available calendars
+        ///
+        /// This command retrieves a list of all calendars the user has access to.
+        ///
+        /// # Returns
+        ///
+        /// A JSON string containing the calendar list
+        #[tool]
+        async fn list_calendars(&self) -> McpResult<String> {
+            info!("=== START list_calendars MCP command ===");
+            debug!("list_calendars called");
+
+            // Initialize the calendar service
+            let service = self.init_calendar_service().await?;
+
+            // Get the calendars
+            match service.list_calendars().await {
+                Ok(calendars) => {
+                    // Convert to JSON
+                    serde_json::to_string(&calendars).map_err(|e| {
+                        let error_msg = format!("Failed to serialize calendar list: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+                    })
+                }
+                Err(err) => {
+                    error!("Failed to list calendars: {}", err);
+                    Err(self.to_mcp_error(
+                        &format!("Failed to list calendars: {}", err),
+                        error_codes::API_ERROR,
+                    ))
+                }
+            }
+        }
+        
+        /// List events from a calendar
+        ///
+        /// This command retrieves events from a specified calendar, with options for filtering.
+        ///
+        /// # Arguments
+        ///
+        /// * `calendar_id` - The ID of the calendar to get events from (optional, defaults to primary)
+        /// * `max_results` - Optional maximum number of events to return
+        /// * `time_min` - Optional minimum time bound (RFC3339 timestamp)
+        /// * `time_max` - Optional maximum time bound (RFC3339 timestamp)
+        ///
+        /// # Returns
+        ///
+        /// A JSON string containing the event list
+        #[tool]
+        async fn list_events(
+            &self,
+            calendar_id: Option<String>,
+            max_results: Option<serde_json::Value>,
+            time_min: Option<String>,
+            time_max: Option<String>,
+        ) -> McpResult<String> {
+            info!("=== START list_events MCP command ===");
+            debug!(
+                "list_events called with calendar_id={:?}, max_results={:?}, time_min={:?}, time_max={:?}",
+                calendar_id, max_results, time_min, time_max
+            );
+
+            // Use primary calendar if not specified
+            let calendar_id = calendar_id.unwrap_or_else(|| "primary".to_string());
+            
+            // Convert max_results using the helper function (default: 10)
+            let max = helpers::parse_max_results(max_results, 10);
+            
+            // Parse time bounds if provided
+            let time_min_parsed = if let Some(t) = time_min {
+                match chrono::DateTime::parse_from_rfc3339(&t) {
+                    Ok(dt) => Some(dt.with_timezone(&chrono::Utc)),
+                    Err(e) => {
+                        let error_msg = format!("Invalid time_min format (expected RFC3339): {}", e);
+                        error!("{}", error_msg);
+                        return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
+                    }
+                }
+            } else {
+                None
+            };
+            
+            let time_max_parsed = if let Some(t) = time_max {
+                match chrono::DateTime::parse_from_rfc3339(&t) {
+                    Ok(dt) => Some(dt.with_timezone(&chrono::Utc)),
+                    Err(e) => {
+                        let error_msg = format!("Invalid time_max format (expected RFC3339): {}", e);
+                        error!("{}", error_msg);
+                        return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
+                    }
+                }
+            } else {
+                None
+            };
+
+            // Initialize the calendar service
+            let service = self.init_calendar_service().await?;
+
+            // Get the events
+            match service.list_events(
+                &calendar_id,
+                Some(max),
+                time_min_parsed,
+                time_max_parsed,
+            ).await {
+                Ok(events) => {
+                    // Convert to JSON
+                    serde_json::to_string(&events).map_err(|e| {
+                        let error_msg = format!("Failed to serialize events list: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+                    })
+                }
+                Err(err) => {
+                    error!(
+                        "Failed to list events from calendar {}: {}",
+                        calendar_id, err
+                    );
+                    Err(self.to_mcp_error(
+                        &format!("Failed to list events from calendar {}: {}", calendar_id, err),
+                        error_codes::API_ERROR,
+                    ))
+                }
+            }
+        }
+        
+        /// Get a single calendar event
+        ///
+        /// This command retrieves a specific event from a calendar.
+        ///
+        /// # Arguments
+        ///
+        /// * `calendar_id` - The ID of the calendar (optional, defaults to primary)
+        /// * `event_id` - The ID of the event to retrieve
+        ///
+        /// # Returns
+        ///
+        /// A JSON string containing the event details
+        #[tool]
+        async fn get_event(
+            &self,
+            calendar_id: Option<String>,
+            event_id: String,
+        ) -> McpResult<String> {
+            info!("=== START get_event MCP command ===");
+            debug!(
+                "get_event called with calendar_id={:?}, event_id={}",
+                calendar_id, event_id
+            );
+
+            // Use primary calendar if not specified
+            let calendar_id = calendar_id.unwrap_or_else(|| "primary".to_string());
+
+            // Initialize the calendar service
+            let service = self.init_calendar_service().await?;
+
+            // Get the event
+            match service.get_event(&calendar_id, &event_id).await {
+                Ok(event) => {
+                    // Convert to JSON
+                    serde_json::to_string(&event).map_err(|e| {
+                        let error_msg = format!("Failed to serialize event: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+                    })
+                }
+                Err(err) => {
+                    error!(
+                        "Failed to get event {} from calendar {}: {}",
+                        event_id, calendar_id, err
+                    );
+                    Err(self.to_mcp_error(
+                        &format!("Failed to get event {} from calendar {}: {}", event_id, calendar_id, err),
+                        error_codes::API_ERROR,
+                    ))
+                }
+            }
+        }
+        
+        /// Create a new calendar event
+        ///
+        /// This command creates a new event in the specified calendar.
+        ///
+        /// # Arguments
+        ///
+        /// * `calendar_id` - The ID of the calendar (optional, defaults to primary)
+        /// * `summary` - The title of the event
+        /// * `description` - Optional description of the event
+        /// * `location` - Optional location of the event
+        /// * `start_time` - Start time in RFC3339 format
+        /// * `end_time` - End time in RFC3339 format
+        /// * `attendees` - Optional list of attendee emails
+        ///
+        /// # Returns
+        ///
+        /// A JSON string containing the created event details
+        #[tool]
+        async fn create_event(
+            &self,
+            calendar_id: Option<String>,
+            summary: String,
+            description: Option<String>,
+            location: Option<String>,
+            start_time: String,
+            end_time: String,
+            attendees: Option<Vec<String>>,
+        ) -> McpResult<String> {
+            info!("=== START create_event MCP command ===");
+            debug!(
+                "create_event called with calendar_id={:?}, summary={}, description={:?}, location={:?}, start_time={}, end_time={}, attendees={:?}",
+                calendar_id, summary, description, location, start_time, end_time, attendees
+            );
+
+            // Use primary calendar if not specified
+            let calendar_id = calendar_id.unwrap_or_else(|| "primary".to_string());
+            
+            // Parse start and end times
+            let start_dt = match chrono::DateTime::parse_from_rfc3339(&start_time) {
+                Ok(dt) => dt.with_timezone(&chrono::Utc),
+                Err(e) => {
+                    let error_msg = format!("Invalid start_time format (expected RFC3339): {}", e);
+                    error!("{}", error_msg);
+                    return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
+                }
+            };
+            
+            let end_dt = match chrono::DateTime::parse_from_rfc3339(&end_time) {
+                Ok(dt) => dt.with_timezone(&chrono::Utc),
+                Err(e) => {
+                    let error_msg = format!("Invalid end_time format (expected RFC3339): {}", e);
+                    error!("{}", error_msg);
+                    return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
+                }
+            };
+            
+            // Create attendee objects from email strings
+            let attendee_objs = attendees.unwrap_or_default().into_iter().map(|email| {
+                crate::calendar_api::Attendee {
+                    email,
+                    display_name: None,
+                    response_status: Some("needsAction".to_string()),
+                    optional: None,
+                }
+            }).collect();
+            
+            // Create the event
+            let event = crate::calendar_api::CalendarEvent {
+                id: None,
+                summary,
+                description,
+                location,
+                start_time: start_dt,
+                end_time: end_dt,
+                attendees: attendee_objs,
+                conference_data: None,
+                html_link: None,
+                creator: None,
+                organizer: None,
+            };
+
+            // Initialize the calendar service
+            let service = self.init_calendar_service().await?;
+
+            // Create the event
+            match service.create_event(&calendar_id, event).await {
+                Ok(created_event) => {
+                    // Convert to JSON
+                    serde_json::to_string(&created_event).map_err(|e| {
+                        let error_msg = format!("Failed to serialize created event: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+                    })
+                }
+                Err(err) => {
+                    error!(
+                        "Failed to create event in calendar {}: {}",
+                        calendar_id, err
+                    );
+                    Err(self.to_mcp_error(
+                        &format!("Failed to create event in calendar {}: {}", calendar_id, err),
+                        error_codes::API_ERROR,
+                    ))
                 }
             }
         }
@@ -2735,11 +3037,12 @@ pub mod auth {
 pub mod calendar_api {
     use crate::config::Config;
     use chrono::{DateTime, Utc};
-    use log::{debug, error, info};
+    use log::{debug, error};
     use reqwest::Client;
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use thiserror::Error;
+    use tokio::sync::Mutex;
     use uuid::Uuid;
 
     const CALENDAR_API_BASE_URL: &str = "https://www.googleapis.com/calendar/v3";
@@ -2832,14 +3135,14 @@ pub mod calendar_api {
     #[derive(Debug, Clone)]
     pub struct CalendarClient {
         client: Client,
-        token_manager: Arc<std::sync::Mutex<crate::gmail_api::TokenManager>>,
+        token_manager: Arc<Mutex<crate::gmail_api::TokenManager>>,
     }
 
     impl CalendarClient {
         pub fn new(config: &Config) -> Self {
             let client = Client::new();
             // Reuse the Gmail token manager since they share the same OAuth scope
-            let token_manager = Arc::new(std::sync::Mutex::new(
+            let token_manager = Arc::new(Mutex::new(
                 crate::gmail_api::TokenManager::new(config),
             ));
 
@@ -2854,7 +3157,7 @@ pub mod calendar_api {
             let token = self
                 .token_manager
                 .lock()
-                .unwrap()
+                .await
                 .get_token(&self.client)
                 .await
                 .map_err(|e| CalendarApiError::AuthError(e.to_string()))?;
@@ -2870,14 +3173,15 @@ pub mod calendar_api {
                 .await
                 .map_err(|e| CalendarApiError::NetworkError(e.to_string()))?;
 
-            if !response.status().is_success() {
+            let status = response.status();
+            if !status.is_success() {
                 let error_text = response
                     .text()
                     .await
                     .unwrap_or_else(|_| "<no response body>".to_string());
                 return Err(CalendarApiError::ApiError(format!(
                     "Failed to list calendars. Status: {}, Error: {}",
-                    response.status(),
+                    status,
                     error_text
                 )));
             }
@@ -2939,7 +3243,7 @@ pub mod calendar_api {
             let token = self
                 .token_manager
                 .lock()
-                .unwrap()
+                .await
                 .get_token(&self.client)
                 .await
                 .map_err(|e| CalendarApiError::AuthError(e.to_string()))?;
@@ -2981,14 +3285,15 @@ pub mod calendar_api {
                 .await
                 .map_err(|e| CalendarApiError::NetworkError(e.to_string()))?;
 
-            if !response.status().is_success() {
+            let status = response.status();
+            if !status.is_success() {
                 let error_text = response
                     .text()
                     .await
                     .unwrap_or_else(|_| "<no response body>".to_string());
                 return Err(CalendarApiError::ApiError(format!(
                     "Failed to list events. Status: {}, Error: {}",
-                    response.status(),
+                    status,
                     error_text
                 )));
             }
@@ -3023,7 +3328,7 @@ pub mod calendar_api {
             let token = self
                 .token_manager
                 .lock()
-                .unwrap()
+                .await
                 .get_token(&self.client)
                 .await
                 .map_err(|e| CalendarApiError::AuthError(e.to_string()))?;
@@ -3094,14 +3399,15 @@ pub mod calendar_api {
                 .await
                 .map_err(|e| CalendarApiError::NetworkError(e.to_string()))?;
 
-            if !response.status().is_success() {
+            let status = response.status();
+            if !status.is_success() {
                 let error_text = response
                     .text()
                     .await
                     .unwrap_or_else(|_| "<no response body>".to_string());
                 return Err(CalendarApiError::ApiError(format!(
                     "Failed to create event. Status: {}, Error: {}",
-                    response.status(),
+                    status,
                     error_text
                 )));
             }
@@ -3119,7 +3425,7 @@ pub mod calendar_api {
             let token = self
                 .token_manager
                 .lock()
-                .unwrap()
+                .await
                 .get_token(&self.client)
                 .await
                 .map_err(|e| CalendarApiError::AuthError(e.to_string()))?;
@@ -3138,14 +3444,15 @@ pub mod calendar_api {
                 .await
                 .map_err(|e| CalendarApiError::NetworkError(e.to_string()))?;
 
-            if !response.status().is_success() {
+            let status = response.status();
+            if !status.is_success() {
                 let error_text = response
                     .text()
                     .await
                     .unwrap_or_else(|_| "<no response body>".to_string());
                 return Err(CalendarApiError::ApiError(format!(
                     "Failed to get event. Status: {}, Error: {}",
-                    response.status(),
+                    status,
                     error_text
                 )));
             }
