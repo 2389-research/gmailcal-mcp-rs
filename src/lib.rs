@@ -1,6 +1,7 @@
 pub use crate::config::Config;
 pub use crate::gmail_api::EmailMessage;
 pub use crate::logging::setup_logging;
+pub use crate::prompts::*;
 /// Gmail MCP Server Implementation
 ///
 /// This crate provides an MCP (Model Completion Protocol) server for Gmail,
@@ -520,16 +521,11 @@ pub mod gmail_api {
             // Handle query parameter differently to avoid lifetime issues
             if let Some(q) = query {
                 // Use separate array for each case
-                let params = [
-                    ("maxResults", max_results_str.as_str()),
-                    ("q", q),
-                ];
+                let params = [("maxResults", max_results_str.as_str()), ("q", q)];
                 self.request_raw(reqwest::Method::GET, endpoint, Some(&params))
                     .await
             } else {
-                let params = [
-                    ("maxResults", max_results_str.as_str()),
-                ];
+                let params = [("maxResults", max_results_str.as_str())];
                 self.request_raw(reqwest::Method::GET, endpoint, Some(&params))
                     .await
             }
@@ -538,23 +534,32 @@ pub mod gmail_api {
         /// Get message details with all metadata and content
         pub async fn get_message_details(&mut self, message_id: &str) -> Result<EmailMessage> {
             use base64;
-            
+
             // First get the full message
             let message_json = self.get_message_raw(message_id).await?;
-            
+
             // Parse the JSON
-            let parsed: serde_json::Value = serde_json::from_str(&message_json)
-                .map_err(|e| GmailApiError::MessageFormatError(format!("Failed to parse message JSON: {}", e)))?;
-            
+            let parsed: serde_json::Value = serde_json::from_str(&message_json).map_err(|e| {
+                GmailApiError::MessageFormatError(format!("Failed to parse message JSON: {}", e))
+            })?;
+
             // Extract the basic message data
-            let id = parsed["id"].as_str()
-                .ok_or_else(|| GmailApiError::MessageFormatError("Message missing 'id' field".to_string()))?
+            let id = parsed["id"]
+                .as_str()
+                .ok_or_else(|| {
+                    GmailApiError::MessageFormatError("Message missing 'id' field".to_string())
+                })?
                 .to_string();
-                
-            let thread_id = parsed["threadId"].as_str()
-                .ok_or_else(|| GmailApiError::MessageFormatError("Message missing 'threadId' field".to_string()))?
+
+            let thread_id = parsed["threadId"]
+                .as_str()
+                .ok_or_else(|| {
+                    GmailApiError::MessageFormatError(
+                        "Message missing 'threadId' field".to_string(),
+                    )
+                })?
                 .to_string();
-            
+
             // Extract metadata
             let mut subject = None;
             let mut from = None;
@@ -563,19 +568,21 @@ pub mod gmail_api {
             let mut snippet = None;
             let mut body_text = None;
             let mut body_html = None;
-            
+
             // Extract snippet if available
             if let Some(s) = parsed.get("snippet").and_then(|s| s.as_str()) {
                 snippet = Some(s.to_string());
             }
-            
+
             // Process payload to extract headers and body parts
             if let Some(payload) = parsed.get("payload") {
                 // Extract headers
                 if let Some(headers) = payload.get("headers").and_then(|h| h.as_array()) {
                     for header in headers {
-                        if let (Some(name), Some(value)) = (header.get("name").and_then(|n| n.as_str()), 
-                                                           header.get("value").and_then(|v| v.as_str())) {
+                        if let (Some(name), Some(value)) = (
+                            header.get("name").and_then(|n| n.as_str()),
+                            header.get("value").and_then(|v| v.as_str()),
+                        ) {
                             match name {
                                 "Subject" => subject = Some(value.to_string()),
                                 "From" => from = Some(value.to_string()),
@@ -586,7 +593,7 @@ pub mod gmail_api {
                         }
                     }
                 }
-                
+
                 // Extract message body parts
                 if let Some(parts) = payload.get("parts").and_then(|p| p.as_array()) {
                     // Process each part
@@ -597,7 +604,9 @@ pub mod gmail_api {
                                 if let Some(body) = part.get("body") {
                                     if let Some(data) = body.get("data").and_then(|d| d.as_str()) {
                                         // Decode base64
-                                        if let Ok(decoded) = base64::decode(data.replace('-', "+").replace('_', "/")) {
+                                        if let Ok(decoded) =
+                                            base64::decode(data.replace('-', "+").replace('_', "/"))
+                                        {
                                             if let Ok(text) = String::from_utf8(decoded) {
                                                 match mime_type {
                                                     "text/plain" => body_text = Some(text),
@@ -612,15 +621,19 @@ pub mod gmail_api {
                         }
                     }
                 }
-                
+
                 // Check for body directly in payload (for simple messages)
                 if body_text.is_none() && body_html.is_none() {
                     if let Some(body) = payload.get("body") {
                         if let Some(data) = body.get("data").and_then(|d| d.as_str()) {
                             // Decode base64
-                            if let Ok(decoded) = base64::decode(data.replace('-', "+").replace('_', "/")) {
+                            if let Ok(decoded) =
+                                base64::decode(data.replace('-', "+").replace('_', "/"))
+                            {
                                 if let Ok(text) = String::from_utf8(decoded) {
-                                    if let Some(mime_type) = payload.get("mimeType").and_then(|m| m.as_str()) {
+                                    if let Some(mime_type) =
+                                        payload.get("mimeType").and_then(|m| m.as_str())
+                                    {
                                         match mime_type {
                                             "text/plain" => body_text = Some(text),
                                             "text/html" => body_html = Some(text),
@@ -636,7 +649,7 @@ pub mod gmail_api {
                     }
                 }
             }
-            
+
             // Create the EmailMessage
             Ok(EmailMessage {
                 id,
@@ -676,23 +689,21 @@ pub mod gmail_api {
             let mut result = Vec::new();
 
             for message in messages {
-                let id = message["id"]
-                    .as_str()
-                    .ok_or_else(|| {
-                        GmailApiError::MessageFormatError("Message missing 'id' field".to_string())
-                    })?;
+                let id = message["id"].as_str().ok_or_else(|| {
+                    GmailApiError::MessageFormatError("Message missing 'id' field".to_string())
+                })?;
 
                 // Get full message details
                 match self.get_message_details(id).await {
                     Ok(email) => {
                         result.push(email);
-                    },
+                    }
                     Err(e) => {
                         // Log error but continue with other messages
                         error!("Failed to get details for message {}: {}", id, e);
                     }
                 }
-                
+
                 // Limit to 3 messages to avoid timeout during development
                 if result.len() >= 3 {
                     debug!("Reached limit of 3 messages, stopping fetch to avoid timeout");
@@ -817,6 +828,7 @@ pub mod server {
     use mcp_attr::jsoncall::ErrorCode;
     use mcp_attr::server::{mcp_server, McpServer};
     use mcp_attr::{Error as McpError, Result as McpResult};
+    use serde_json::json;
 
     use crate::config::{Config, ConfigError};
     use crate::gmail_api::{GmailApiError, GmailService};
@@ -1133,7 +1145,79 @@ pub mod server {
         /// You can provide these in a .env file in the same directory as the executable.
         #[prompt]
         async fn gmail_prompt(&self) -> McpResult<&str> {
-            Ok("Gmail MCP Server")
+            Ok(crate::prompts::GMAIL_MASTER_PROMPT)
+        }
+
+        /// Email Analysis Prompt
+        ///
+        /// Guidelines on how to analyze email content effectively
+        #[prompt]
+        async fn email_analysis_prompt(&self) -> McpResult<&str> {
+            Ok(crate::prompts::EMAIL_ANALYSIS_PROMPT)
+        }
+
+        /// Email Summarization Prompt
+        ///
+        /// Guidelines on how to create concise email summaries
+        #[prompt]
+        async fn email_summarization_prompt(&self) -> McpResult<&str> {
+            Ok(crate::prompts::EMAIL_SUMMARIZATION_PROMPT)
+        }
+
+        /// Email Search Prompt
+        ///
+        /// Guide to effective Gmail search strategies
+        #[prompt]
+        async fn email_search_prompt(&self) -> McpResult<&str> {
+            Ok(crate::prompts::EMAIL_SEARCH_PROMPT)
+        }
+
+        /// Task Extraction Prompt
+        ///
+        /// Instructions for finding action items in emails
+        #[prompt]
+        async fn task_extraction_prompt(&self) -> McpResult<&str> {
+            Ok(crate::prompts::TASK_EXTRACTION_PROMPT)
+        }
+
+        /// Meeting Extraction Prompt
+        ///
+        /// Instructions for finding meeting details in emails
+        #[prompt]
+        async fn meeting_extraction_prompt(&self) -> McpResult<&str> {
+            Ok(crate::prompts::MEETING_EXTRACTION_PROMPT)
+        }
+
+        /// Contact Extraction Prompt
+        ///
+        /// Instructions for extracting contact information from emails
+        #[prompt]
+        async fn contact_extraction_prompt(&self) -> McpResult<&str> {
+            Ok(crate::prompts::CONTACT_EXTRACTION_PROMPT)
+        }
+
+        /// Email Categorization Prompt
+        ///
+        /// Guide to categorizing emails effectively
+        #[prompt]
+        async fn email_categorization_prompt(&self) -> McpResult<&str> {
+            Ok(crate::prompts::EMAIL_CATEGORIZATION_PROMPT)
+        }
+
+        /// Email Prioritization Prompt
+        ///
+        /// Guide to prioritizing emails effectively
+        #[prompt]
+        async fn email_prioritization_prompt(&self) -> McpResult<&str> {
+            Ok(crate::prompts::EMAIL_PRIORITIZATION_PROMPT)
+        }
+
+        /// Email Drafting Prompt
+        ///
+        /// Guide to writing effective emails
+        #[prompt]
+        async fn email_drafting_prompt(&self) -> McpResult<&str> {
+            Ok(crate::prompts::EMAIL_DRAFTING_PROMPT)
         }
 
         /// Get a list of emails from the inbox
@@ -1174,19 +1258,19 @@ pub mod server {
                 Err(err) => {
                     let query_info = query.as_deref().unwrap_or("none");
                     error!(
-                        "Failed to list emails with max_results={}, query='{}': {}", 
+                        "Failed to list emails with max_results={}, query='{}': {}",
                         max, query_info, err
                     );
-                    
+
                     // Create detailed contextual error
                     error!("Context: Failed to list emails with parameters: max_results={}, query='{}'", 
                         max, query_info
                     );
-                    
+
                     return Err(self.map_gmail_error(err));
                 }
             };
-            
+
             info!("=== END list_emails MCP command (success) ===");
             Ok(result)
         }
@@ -1339,7 +1423,591 @@ pub mod server {
             info!("=== END check_connection MCP command (success) ===");
             Ok(profile_json)
         }
+
+        /// Analyze an email to extract key information
+        ///
+        /// Takes an email ID and performs a detailed analysis on its content.
+        /// Extracts information like action items, meeting details, contact information,
+        /// sentiment, priority, and suggested next steps.
+        ///
+        /// Args:
+        ///   message_id: The ID of the message to analyze
+        ///   analysis_type: Optional type of analysis to perform. Can be "general", "tasks",
+        ///                  "meetings", "contacts", or "all". Default is "general".
+        #[tool]
+        async fn analyze_email(
+            &self,
+            message_id: String,
+            analysis_type: Option<String>,
+        ) -> McpResult<String> {
+            info!("=== START analyze_email MCP command ===");
+            debug!(
+                "analyze_email called with message_id={}, analysis_type={:?}",
+                message_id, analysis_type
+            );
+
+            // Get the Gmail service
+            let mut service = self.init_gmail_service().await?;
+
+            // Get the specified email
+            let email = match service.get_message_details(&message_id).await {
+                Ok(msg) => msg,
+                Err(err) => {
+                    error!("Failed to get email for analysis: {}", err);
+                    return Err(self.map_gmail_error(err));
+                }
+            };
+
+            // Determine what type of analysis to perform
+            let analysis = analysis_type.unwrap_or_else(|| "general".to_string());
+
+            // Prepare the analysis result
+            let result = match analysis.to_lowercase().as_str() {
+                "tasks" | "task" => {
+                    // Create a structured JSON for task analysis
+                    json!({
+                        "email_id": email.id,
+                        "subject": email.subject,
+                        "from": email.from,
+                        "date": email.date,
+                        "analysis_type": "tasks",
+                        "content": email.body_text.unwrap_or_else(|| email.snippet.unwrap_or_default()),
+                        "analysis_prompt": crate::prompts::TASK_EXTRACTION_PROMPT
+                    })
+                }
+                "meetings" | "meeting" => {
+                    // Create a structured JSON for meeting analysis
+                    json!({
+                        "email_id": email.id,
+                        "subject": email.subject,
+                        "from": email.from,
+                        "date": email.date,
+                        "analysis_type": "meetings",
+                        "content": email.body_text.unwrap_or_else(|| email.snippet.unwrap_or_default()),
+                        "analysis_prompt": crate::prompts::MEETING_EXTRACTION_PROMPT
+                    })
+                }
+                "contacts" | "contact" => {
+                    // Create a structured JSON for contact analysis
+                    json!({
+                        "email_id": email.id,
+                        "subject": email.subject,
+                        "from": email.from,
+                        "date": email.date,
+                        "analysis_type": "contacts",
+                        "content": email.body_text.unwrap_or_else(|| email.snippet.unwrap_or_default()),
+                        "analysis_prompt": crate::prompts::CONTACT_EXTRACTION_PROMPT
+                    })
+                }
+                "summary" | "summarize" => {
+                    // Create a structured JSON for email summarization
+                    json!({
+                        "email_id": email.id,
+                        "subject": email.subject,
+                        "from": email.from,
+                        "date": email.date,
+                        "analysis_type": "summary",
+                        "content": email.body_text.unwrap_or_else(|| email.snippet.unwrap_or_default()),
+                        "analysis_prompt": crate::prompts::EMAIL_SUMMARIZATION_PROMPT
+                    })
+                }
+                "priority" | "prioritize" => {
+                    // Create a structured JSON for email prioritization
+                    json!({
+                        "email_id": email.id,
+                        "subject": email.subject,
+                        "from": email.from,
+                        "date": email.date,
+                        "analysis_type": "priority",
+                        "content": email.body_text.unwrap_or_else(|| email.snippet.unwrap_or_default()),
+                        "analysis_prompt": crate::prompts::EMAIL_PRIORITIZATION_PROMPT
+                    })
+                }
+                "all" => {
+                    // Create comprehensive JSON with all analysis types
+                    json!({
+                        "email_id": email.id,
+                        "subject": email.subject,
+                        "from": email.from,
+                        "to": email.to,
+                        "date": email.date,
+                        "analysis_type": "comprehensive",
+                        "content": email.body_text.unwrap_or_else(|| email.snippet.unwrap_or_default()),
+                        "html_content": email.body_html,
+                        "analysis_prompts": {
+                            "general": crate::prompts::EMAIL_ANALYSIS_PROMPT,
+                            "tasks": crate::prompts::TASK_EXTRACTION_PROMPT,
+                            "meetings": crate::prompts::MEETING_EXTRACTION_PROMPT,
+                            "contacts": crate::prompts::CONTACT_EXTRACTION_PROMPT,
+                            "priority": crate::prompts::EMAIL_PRIORITIZATION_PROMPT
+                        }
+                    })
+                }
+                _ => {
+                    // Default to general analysis
+                    json!({
+                        "email_id": email.id,
+                        "subject": email.subject,
+                        "from": email.from,
+                        "date": email.date,
+                        "analysis_type": "general",
+                        "content": email.body_text.unwrap_or_else(|| email.snippet.unwrap_or_default()),
+                        "analysis_prompt": crate::prompts::EMAIL_ANALYSIS_PROMPT
+                    })
+                }
+            };
+
+            // Convert to string
+            let result_json = serde_json::to_string_pretty(&result).map_err(|e| {
+                let error_msg = format!("Failed to serialize analysis result: {}", e);
+                error!("{}", error_msg);
+                self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+            })?;
+
+            info!("=== END analyze_email MCP command (success) ===");
+            Ok(result_json)
+        }
+        
+        /// Batch analyze multiple emails
+        ///
+        /// Takes a list of email IDs and performs quick analysis on each one.
+        /// Useful for getting an overview of multiple emails at once.
+        ///
+        /// Args:
+        ///   message_ids: List of email IDs to analyze
+        ///   analysis_type: Optional type of analysis to perform. Can be "summary", "tasks", 
+        ///                  "priority", or "category". Default is "summary".
+        #[tool]
+        async fn batch_analyze_emails(&self, message_ids: Vec<String>, analysis_type: Option<String>) -> McpResult<String> {
+            info!("=== START batch_analyze_emails MCP command ===");
+            debug!(
+                "batch_analyze_emails called with {} messages, analysis_type={:?}",
+                message_ids.len(), analysis_type
+            );
+            
+            // Get the Gmail service
+            let mut service = self.init_gmail_service().await?;
+            
+            // Determine what type of analysis to perform
+            let analysis = analysis_type.unwrap_or_else(|| "summary".to_string()).to_lowercase();
+            
+            // Analyze each email
+            let mut results = Vec::new();
+            for id in message_ids {
+                debug!("Analyzing email {}", id);
+                
+                // Get the specified email
+                match service.get_message_details(&id).await {
+                    Ok(email) => {
+                        // Prepare analysis based on type
+                        let analysis_prompt = match analysis.as_str() {
+                            "tasks" | "task" => crate::prompts::TASK_EXTRACTION_PROMPT,
+                            "priority" => crate::prompts::EMAIL_PRIORITIZATION_PROMPT,
+                            "category" => crate::prompts::EMAIL_CATEGORIZATION_PROMPT,
+                            _ => crate::prompts::EMAIL_SUMMARIZATION_PROMPT, // Default to summary
+                        };
+                        
+                        // Create analysis result
+                        let result = json!({
+                            "email_id": email.id,
+                            "subject": email.subject,
+                            "from": email.from,
+                            "date": email.date,
+                            "analysis_type": analysis,
+                            "content": email.body_text.unwrap_or_else(|| email.snippet.unwrap_or_default()),
+                            "analysis_prompt": analysis_prompt
+                        });
+                        
+                        results.push(result);
+                    },
+                    Err(err) => {
+                        // Log error but continue with other emails
+                        error!("Failed to analyze email {}: {}", id, err);
+                        
+                        // Add error entry to results
+                        results.push(json!({
+                            "email_id": id,
+                            "error": format!("Failed to retrieve email: {}", err)
+                        }));
+                    }
+                }
+            }
+            
+            // Create a batch result
+            let batch_result = json!({
+                "analysis_type": analysis,
+                "email_count": results.len(),
+                "results": results
+            });
+            
+            // Convert to string
+            let result_json = serde_json::to_string_pretty(&batch_result).map_err(|e| {
+                let error_msg = format!("Failed to serialize batch analysis result: {}", e);
+                error!("{}", error_msg);
+                self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+            })?;
+            
+            info!("=== END batch_analyze_emails MCP command (success) ===");
+            Ok(result_json)
+        }
     }
+}
+
+// Module with prompts for MCP
+pub mod prompts {
+    /// Gmail Assistant Prompts
+    ///
+    /// These prompts help Claude understand how to interact with Gmail data
+    /// through the MCP server tools and provide useful analysis.
+
+    /// Master prompt for system context
+    pub const GMAIL_MASTER_PROMPT: &str = r#"
+# Gmail Assistant
+
+You have access to email data through a Gmail MCP server. Your role is to help users manage, analyze, and extract insights from their emails. You can search emails, read messages, and provide summaries and analyses.
+
+## Capabilities
+- List and search emails with various criteria
+- Get detailed content of specific emails
+- Analyze email content, sentiment, and context
+- Extract action items, summaries, and key points
+
+## Important Notes
+- Handle email data with privacy and security in mind
+- Format email data in a readable way
+- Highlight important information from emails
+- Extract action items and tasks when relevant
+"#;
+
+    /// Analysis prompt for email content
+    pub const EMAIL_ANALYSIS_PROMPT: &str = r#"
+When analyzing emails, consider these aspects:
+
+1. Key Information:
+   - Identify the primary purpose of the email
+   - Extract key dates, deadlines, or time-sensitive information
+   - Note important names, contacts, or organizations mentioned
+
+2. Action Items:
+   - Identify explicit requests or tasks assigned to the recipient
+   - Note any deadlines mentioned for these actions
+   - Highlight any decisions the recipient needs to make
+
+3. Context and Background:
+   - Determine if this is part of an ongoing conversation
+   - Identify references to previous communications
+   - Note any attached files or links to external resources
+
+4. Tone and Sentiment:
+   - Assess the formality level (formal, casual, urgent)
+   - Note emotional tone (neutral, positive, negative, urgent)
+   - Identify any sensitive or confidential content
+
+5. Next Steps:
+   - Suggest appropriate follow-up actions
+   - Identify if a response is expected and by when
+   - Note any calendar events that should be created
+
+Format your analysis in a clear, structured way to help the user quickly understand the most important aspects of the email.
+"#;
+
+    /// Summarization prompt for emails
+    pub const EMAIL_SUMMARIZATION_PROMPT: &str = r#"
+When summarizing emails, follow these guidelines:
+
+1. Length and Detail:
+   - For short emails: Provide a 1-2 sentence summary
+   - For medium emails: Provide 2-3 key bullet points
+   - For long emails: Provide a structured summary with sections
+
+2. Content Focus:
+   - Prioritize action items and requests
+   - Include deadlines or time-sensitive information
+   - Maintain the core message and intent
+   - Include only the most relevant details
+
+3. Structure:
+   - Start with the main purpose of the email
+   - List any actions required of the recipient
+   - Note any important details or context
+   - End with deadline information if applicable
+
+4. Style:
+   - Use concise, clear language
+   - Maintain a neutral tone
+   - Use present tense for clarity
+   - Avoid unnecessary details while keeping essential information
+
+Your summary should allow the user to understand the email's purpose and any required actions without reading the full text.
+"#;
+
+    /// Email search strategies prompt
+    pub const EMAIL_SEARCH_PROMPT: &str = r#"
+When helping users search for emails, consider these effective strategies:
+
+1. Gmail Search Operators:
+   - from: (sender's email address)
+   - to: (recipient's email address)
+   - subject: (words in the subject line)
+   - has:attachment (emails with attachments)
+   - after:YYYY/MM/DD (emails after a specific date)
+   - before:YYYY/MM/DD (emails before a specific date)
+   - is:unread (unread emails)
+   - label:x (emails with a specific label)
+   - filename:xyz (emails with attachments of a specific name or type)
+
+2. Combinatorial Search:
+   - Use multiple operators with AND/OR logic
+   - Example: "from:john@example.com AND has:attachment AND after:2023/01/01"
+
+3. Phrase Search:
+   - Use quotes for exact phrases
+   - Example: "quarterly report"
+
+4. Exclusion:
+   - Use "-" to exclude terms
+   - Example: "project update -meeting"
+
+5. Search Refinement:
+   - Start broad, then narrow with additional terms
+   - Consider variations in spelling or phrasing
+   - Try different date ranges if initial search is unsuccessful
+
+When suggesting search queries, aim to be specific enough to find relevant emails but not so narrow that important messages are missed. Allow for progressive refinement based on initial results.
+"#;
+
+    /// Task extraction prompt
+    pub const TASK_EXTRACTION_PROMPT: &str = r#"
+When extracting tasks and action items from emails, look for:
+
+1. Explicit Requests:
+   - Direct questions that need answers
+   - Phrases like "Could you", "Please", "I need you to"
+   - Sentences ending with question marks requiring action
+   - Requests for feedback, review, or input
+
+2. Implied Tasks:
+   - Mentions of deadlines without explicit requests
+   - Information sharing that implies a need for response
+   - Updates that might require acknowledgment
+   - References to shared responsibilities
+
+3. Task Components to Identify:
+   - The specific action required
+   - Who is responsible (if mentioned)
+   - Deadline or timeframe
+   - Priority level (if indicated)
+   - Dependencies or prerequisites
+   - Related resources or references
+
+4. Format Tasks Clearly:
+   - Use action-oriented language
+   - Start with verbs (Respond, Review, Complete, etc.)
+   - Include the deadline if available
+   - Add context for clarity
+
+Present tasks in a structured list format that can be easily transferred to a task management system. If dates are mentioned, format them consistently (YYYY-MM-DD) to facilitate calendar integration.
+"#;
+
+    /// Meeting extraction prompt
+    pub const MEETING_EXTRACTION_PROMPT: &str = r#"
+When extracting meeting information from emails, look for:
+
+1. Key Meeting Details:
+   - Date and time (including time zone if specified)
+   - Duration (if mentioned)
+   - Location (physical location or virtual meeting link)
+   - Meeting title or purpose
+   - Organizer name and contact information
+   - Required and optional attendees
+
+2. Meeting Context:
+   - Agenda items or topics for discussion
+   - Pre-meeting preparation requirements
+   - Relevant documents or links
+   - Background information or meeting objectives
+   - Connection to previous or future meetings
+
+3. Technical Details (for virtual meetings):
+   - Platform (Zoom, Teams, Google Meet, etc.)
+   - Meeting ID or conference code
+   - Password information
+   - Dial-in numbers for phone access
+   - Technical requirements or instructions
+
+4. Format Meeting Information:
+   - Present in calendar-friendly format
+   - Clearly separate core details (when, where, who) from supporting information
+   - Highlight any required preparation or action before the meeting
+   - Note if a response or RSVP is required
+
+Present this information in a structured format that allows the user to quickly understand all relevant meeting details and easily add the meeting to their calendar.
+"#;
+
+    /// Contact information extraction prompt
+    pub const CONTACT_EXTRACTION_PROMPT: &str = r#"
+When extracting contact information from emails, look for:
+
+1. Personal Identifiers:
+   - Full name
+   - Job title/position
+   - Company/organization
+   - Department/team
+
+2. Contact Details:
+   - Email address(es)
+   - Phone number(s) with type (mobile, office, etc.)
+   - Physical address(es)
+   - Website/social media profiles
+   - Messaging handles (Slack, Teams, etc.)
+
+3. Context Information:
+   - How they're connected to the sender/recipient
+   - Their role in the discussed matter
+   - Preferred contact method (if mentioned)
+   - Time zone or working hours (if relevant)
+   - Assistant or secondary contact information
+
+4. Format Considerations:
+   - Group related information together
+   - Clearly label different types of contact information
+   - Preserve formatting for complex items (e.g., international phone numbers)
+   - Note if the information appears to be from an email signature
+
+Present the extracted contact information in a structured, organized format that could be easily added to a contact management system or address book.
+"#;
+
+    /// Email categorization prompt
+    pub const EMAIL_CATEGORIZATION_PROMPT: &str = r#"
+When categorizing emails, consider these common categories and their characteristics:
+
+1. Action Required:
+   - Contains explicit requests or tasks
+   - Requires a response or decision
+   - Has deadlines or time-sensitive content
+   - Directly asks for input or feedback
+
+2. FYI/Information:
+   - Provides updates without requiring action
+   - Shares information for awareness
+   - Contains newsletters or announcements
+   - Serves as documentation or reference
+
+3. Follow-up:
+   - Continues a previous conversation
+   - References earlier communications
+   - Provides requested information
+   - Confirms completion of a task
+
+4. Administrative:
+   - Relates to operational matters
+   - Contains policy updates or procedural information
+   - Includes HR-related communications
+   - Addresses organizational announcements
+
+5. Personal:
+   - Non-work related content
+   - Communication from friends or family
+   - Personal updates or invitations
+   - Not directly business-related
+
+6. Important/Urgent:
+   - Time-critical information
+   - High-priority requests
+   - Contains escalation language
+   - From key stakeholders or leadership
+
+7. Commercial/Marketing:
+   - Promotional content
+   - Product announcements or offers
+   - Advertising materials
+   - Subscription-based content
+
+For each email, identify the primary category and any secondary categories that might apply. Consider the sender, subject line, content, and context in your categorization.
+"#;
+
+    /// Email prioritization prompt
+    pub const EMAIL_PRIORITIZATION_PROMPT: &str = r#"
+When helping users prioritize emails, consider these factors:
+
+1. Urgency Indicators:
+   - Explicit deadlines mentioned in the content
+   - Time-sensitive language ("urgent," "ASAP," "today")
+   - Proximity of mentioned dates to current date
+   - Follow-ups or reminders about previous requests
+
+2. Importance Factors:
+   - Sender's role or relationship to the user
+   - Topic's alignment with known user priorities
+   - Organizational impact of the content
+   - Whether the user is in the main recipient line (To vs. CC)
+
+3. Action Requirements:
+   - Direct questions or requests made of the user
+   - Explicit asks for response or input
+   - Decision points requiring the user's authority
+   - Tasks that others are waiting on
+
+4. Prioritization Categories:
+   - Critical (requires immediate attention)
+   - High (important and time-sensitive, but not immediate)
+   - Medium (important but not time-critical)
+   - Low (routine information or future reference)
+   - No Action (purely informational)
+
+5. Dependency Considerations:
+   - Whether others are waiting on the user's response
+   - If the email blocks progress on important projects
+   - Connection to high-priority organizational goals
+   - Relationship to upcoming meetings or deadlines
+
+When suggesting prioritization, explain the reasoning briefly to help the user understand the recommendation and adjust their approach accordingly.
+"#;
+
+    /// Email drafting assistance prompt
+    pub const EMAIL_DRAFTING_PROMPT: &str = r#"
+When helping users draft effective emails, follow these guidelines:
+
+1. Structure:
+   - Clear, concise subject line that reflects content
+   - Brief greeting appropriate to the relationship
+   - Purpose statement in the first paragraph
+   - Logically organized body with short paragraphs
+   - Clear closing with next steps or expectations
+   - Professional signature with relevant contact information
+
+2. Content Considerations:
+   - State the purpose immediately
+   - Provide necessary context without overexplaining
+   - Highlight key information or questions
+   - Use bullet points for multiple items or requests
+   - Be explicit about any deadlines or timelines
+   - Clearly state requested actions or responses
+
+3. Tone and Style:
+   - Match formality to the relationship and context
+   - Be respectful and professional
+   - Use active voice for clarity
+   - Keep sentences concise (15-20 words on average)
+   - Avoid jargon unless appropriate for the audience
+   - Be polite but direct with requests
+
+4. Special Situations:
+   - For introductions: explain context and mutual benefit
+   - For requests: be specific and make responding easy
+   - For follow-ups: reference previous communication
+   - For sensitive topics: be diplomatic yet clear
+   - For group emails: consider what everyone needs to know
+
+5. Before Sending Checklist:
+   - Verify all necessary information is included
+   - Check that tone is appropriate
+   - Ensure requests or questions are clear
+   - Confirm any attachments are mentioned and included
+   - Review for typos, grammar issues, or unclear phrasing
+
+Adapt these guidelines based on the specific purpose, audience, and context of the email being drafted.
+"#;
 }
 
 // OAuth authentication module for token refresh flow
