@@ -134,9 +134,11 @@ pub mod gmail_api {
 
         async fn get_token(&mut self, client: &Client) -> Result<String> {
             // Debug log the initial state
-            debug!("Token status check - have token: {}, valid: {}", 
-                !self.access_token.is_empty(), 
-                SystemTime::now() < self.expiry);
+            debug!(
+                "Token status check - have token: {}, valid: {}",
+                !self.access_token.is_empty(),
+                SystemTime::now() < self.expiry
+            );
 
             // Check if current token is still valid
             if !self.access_token.is_empty() && SystemTime::now() < self.expiry {
@@ -156,11 +158,19 @@ pub mod gmail_api {
 
             // Log request details for troubleshooting (but hide credentials)
             debug!("Requesting token from {}", OAUTH_TOKEN_URL);
-            debug!("Using client_id: {}...{} (truncated)", 
-                &self.client_id[..4], 
-                &self.client_id[self.client_id.len().saturating_sub(4)..]);
-            debug!("Using refresh_token starting with: {}... (truncated)", 
-                if self.refresh_token.len() > 8 { &self.refresh_token[..8] } else { "(token too short)" });
+            debug!(
+                "Using client_id: {}...{} (truncated)",
+                &self.client_id[..4],
+                &self.client_id[self.client_id.len().saturating_sub(4)..]
+            );
+            debug!(
+                "Using refresh_token starting with: {}... (truncated)",
+                if self.refresh_token.len() > 8 {
+                    &self.refresh_token[..8]
+                } else {
+                    "(token too short)"
+                }
+            );
 
             let response = client
                 .post(OAUTH_TOKEN_URL)
@@ -173,25 +183,34 @@ pub mod gmail_api {
             debug!("Token response status: {}", status);
 
             if !status.is_success() {
-                let error_text = response.text().await.unwrap_or_else(|_| "<no response body>".to_string());
-                
-                error!("Token refresh failed. Status: {}, Error: {}", status, error_text);
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<no response body>".to_string());
+
+                error!(
+                    "Token refresh failed. Status: {}, Error: {}",
+                    status, error_text
+                );
                 return Err(GmailApiError::AuthError(format!(
                     "Failed to refresh token. Status: {}, Error: {}",
                     status, error_text
                 )));
             }
 
-            let response_text = response.text().await
-                .map_err(|e| GmailApiError::ApiError(format!("Failed to get token response: {}", e)))?;
-            
+            let response_text = response.text().await.map_err(|e| {
+                GmailApiError::ApiError(format!("Failed to get token response: {}", e))
+            })?;
+
             debug!("Token response received, parsing JSON");
-            
-            let token_data: TokenResponse = serde_json::from_str(&response_text)
-                .map_err(|e| {
-                    error!("Failed to parse token response: {}. Response: {}", e, response_text);
-                    GmailApiError::ApiError(format!("Failed to parse token response: {}", e))
-                })?;
+
+            let token_data: TokenResponse = serde_json::from_str(&response_text).map_err(|e| {
+                error!(
+                    "Failed to parse token response: {}. Response: {}",
+                    e, response_text
+                );
+                GmailApiError::ApiError(format!("Failed to parse token response: {}", e))
+            })?;
 
             // Update token and expiry
             self.access_token = token_data.access_token.clone();
@@ -199,10 +218,19 @@ pub mod gmail_api {
             let expires_in = token_data.expires_in.saturating_sub(60); // 1 minute buffer
             self.expiry = SystemTime::now() + Duration::from_secs(expires_in);
 
-            debug!("Token refreshed successfully, valid for {} seconds", expires_in);
-            debug!("Token starts with: {}... (truncated)", 
-                if self.access_token.len() > 10 { &self.access_token[..10] } else { "(token too short)" });
-            
+            debug!(
+                "Token refreshed successfully, valid for {} seconds",
+                expires_in
+            );
+            debug!(
+                "Token starts with: {}... (truncated)",
+                if self.access_token.len() > 10 {
+                    &self.access_token[..10]
+                } else {
+                    "(token too short)"
+                }
+            );
+
             Ok(self.access_token.clone())
         }
     }
@@ -217,6 +245,8 @@ pub mod gmail_api {
         pub to: Option<String>,
         pub date: Option<String>,
         pub snippet: Option<String>,
+        pub body_text: Option<String>,
+        pub body_html: Option<String>,
     }
 
     // Gmail API error types
@@ -227,16 +257,16 @@ pub mod gmail_api {
 
         #[error("Authentication error: {0}")]
         AuthError(String),
-        
+
         #[error("Message retrieval error: {0}")]
         MessageRetrievalError(String),
-        
+
         #[error("Message format error: {0}")]
         MessageFormatError(String),
-        
+
         #[error("Network error: {0}")]
         NetworkError(String),
-        
+
         #[error("Rate limit error: {0}")]
         RateLimitError(String),
     }
@@ -251,11 +281,11 @@ pub mod gmail_api {
     impl GmailService {
         pub fn new(config: &Config) -> Result<Self> {
             debug!("Creating new GmailService with config");
-            
+
             // Create HTTP client with reasonable timeouts
             debug!("Creating HTTP client with timeouts");
             let client = Client::builder()
-                .timeout(Duration::from_secs(60))  // Longer timeout for Gmail API
+                .timeout(Duration::from_secs(60)) // Longer timeout for Gmail API
                 .connect_timeout(Duration::from_secs(30))
                 .pool_idle_timeout(Duration::from_secs(90))
                 .pool_max_idle_per_host(5)
@@ -265,12 +295,15 @@ pub mod gmail_api {
                     error!("Failed to create HTTP client: {}", e);
                     GmailApiError::NetworkError(format!("Failed to create HTTP client: {}", e))
                 })?;
-                
+
             debug!("HTTP client created successfully");
-            
+
             let token_manager = TokenManager::new(config);
-            
-            Ok(Self { client, token_manager })
+
+            Ok(Self {
+                client,
+                token_manager,
+            })
         }
 
         // Helper function to make authenticated requests to Gmail API
@@ -282,41 +315,42 @@ pub mod gmail_api {
         ) -> Result<T> {
             // Get valid access token
             let token = self.token_manager.get_token(&self.client).await?;
-            
+
             let url = format!("{}{}", GMAIL_API_BASE_URL, endpoint);
             debug!("Making request to: {}", url);
-            
+
             // Build request with authorization header
             debug!("Making authenticated request to {}", url);
-            let mut req_builder = self.client
+            let mut req_builder = self
+                .client
                 .request(method, &url)
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Accept", "application/json")
                 .header("User-Agent", "mcp-gmailcal/0.1.0");
-                
+
             // Add query parameters if provided
             if let Some(q) = query {
                 req_builder = req_builder.query(q);
             }
-            
+
             // Send request
             debug!("Sending request to Gmail API");
-            let response = req_builder
-                .send()
-                .await
-                .map_err(|e| {
-                    error!("Network error sending request: {}", e);
-                    GmailApiError::NetworkError(e.to_string())
-                })?;
-                
+            let response = req_builder.send().await.map_err(|e| {
+                error!("Network error sending request: {}", e);
+                GmailApiError::NetworkError(e.to_string())
+            })?;
+
             debug!("Response received with status: {}", response.status());
-            
+
             // Handle response status
             let status = response.status();
             if !status.is_success() {
                 let status_code = status.as_u16();
-                let error_text = response.text().await.unwrap_or_else(|_| "<no response body>".to_string());
-                
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<no response body>".to_string());
+
                 // Map common error codes to appropriate error types
                 return match status_code {
                     401 | 403 => Err(GmailApiError::AuthError(format!(
@@ -337,12 +371,11 @@ pub mod gmail_api {
                     ))),
                 };
             }
-            
+
             // Parse JSON response
-            response
-                .json::<T>()
-                .await
-                .map_err(|e| GmailApiError::MessageFormatError(format!("Failed to parse response: {}", e)))
+            response.json::<T>().await.map_err(|e| {
+                GmailApiError::MessageFormatError(format!("Failed to parse response: {}", e))
+            })
         }
 
         // Helper function to make a request and return the raw JSON response
@@ -354,41 +387,42 @@ pub mod gmail_api {
         ) -> Result<String> {
             // Get valid access token
             let token = self.token_manager.get_token(&self.client).await?;
-            
+
             let url = format!("{}{}", GMAIL_API_BASE_URL, endpoint);
             debug!("Making raw request to: {}", url);
-            
+
             // Build request with authorization header
             debug!("Making raw authenticated request to {}", url);
-            let mut req_builder = self.client
+            let mut req_builder = self
+                .client
                 .request(method, &url)
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Accept", "application/json")
                 .header("User-Agent", "mcp-gmailcal/0.1.0");
-                
+
             // Add query parameters if provided
             if let Some(q) = query {
                 req_builder = req_builder.query(q);
             }
-            
+
             // Send request
             debug!("Sending raw request to Gmail API");
-            let response = req_builder
-                .send()
-                .await
-                .map_err(|e| {
-                    error!("Network error sending raw request: {}", e);
-                    GmailApiError::NetworkError(e.to_string())
-                })?;
-            
+            let response = req_builder.send().await.map_err(|e| {
+                error!("Network error sending raw request: {}", e);
+                GmailApiError::NetworkError(e.to_string())
+            })?;
+
             debug!("Raw response received with status: {}", response.status());
-            
+
             // Handle response status
             let status = response.status();
             if !status.is_success() {
                 let status_code = status.as_u16();
-                let error_text = response.text().await.unwrap_or_else(|_| "<no response body>".to_string());
-                
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<no response body>".to_string());
+
                 // Map common error codes to appropriate error types
                 return match status_code {
                     401 | 403 => Err(GmailApiError::AuthError(format!(
@@ -409,34 +443,34 @@ pub mod gmail_api {
                     ))),
                 };
             }
-            
+
             // Get raw JSON as string
             debug!("Reading response body");
-            let json_text = response
-                .text()
-                .await
-                .map_err(|e| {
-                    error!("Failed to get response body: {}", e);
-                    GmailApiError::NetworkError(format!("Failed to get response body: {}", e))
-                })?;
-            
+            let json_text = response.text().await.map_err(|e| {
+                error!("Failed to get response body: {}", e);
+                GmailApiError::NetworkError(format!("Failed to get response body: {}", e))
+            })?;
+
             // Log a preview of the response
             let preview = if json_text.len() > 200 {
-                format!("{}... (truncated, total size: {} bytes)", &json_text[..200], json_text.len())
+                format!(
+                    "{}... (truncated, total size: {} bytes)",
+                    &json_text[..200],
+                    json_text.len()
+                )
             } else {
                 json_text.clone()
             };
             debug!("Raw response body: {}", preview);
-                
+
             // Format JSON for pretty printing
             match serde_json::from_str::<Value>(&json_text) {
                 Ok(value) => {
                     debug!("Successfully parsed response as JSON");
-                    serde_json::to_string_pretty(&value)
-                        .map_err(|e| {
-                            error!("Failed to format JSON: {}", e);
-                            GmailApiError::MessageFormatError(format!("Failed to format JSON: {}", e))
-                        })
+                    serde_json::to_string_pretty(&value).map_err(|e| {
+                        error!("Failed to format JSON: {}", e);
+                        GmailApiError::MessageFormatError(format!("Failed to format JSON: {}", e))
+                    })
                 }
                 Err(e) => {
                     error!("Failed to parse response as JSON: {}", e);
@@ -445,51 +479,234 @@ pub mod gmail_api {
                 }
             }
         }
-        
+
         /// Get a message by ID and return as raw JSON
         pub async fn get_message_raw(&mut self, message_id: &str) -> Result<String> {
             debug!("Getting raw message with ID: {}", message_id);
-            
+
             // Log request details
             let request_details = format!(
                 "Request details: User ID: 'me', Message ID: '{}', Format: 'full'",
                 message_id
             );
             info!("{}", request_details);
-            
+
             // Build query params for full message format
             let query = [("format", "full")];
-            
+
             // Execute request
             let endpoint = format!("/users/me/messages/{}", message_id);
-            self.request_raw(reqwest::Method::GET, &endpoint, Some(&query)).await
+            self.request_raw(reqwest::Method::GET, &endpoint, Some(&query))
+                .await
         }
 
         /// List messages and return raw JSON response
-        pub async fn list_messages_raw(&mut self, max_results: u32, query: Option<&str>) -> Result<String> {
-            debug!("Listing raw messages with max_results={}, query={:?}", max_results, query);
-            
+        pub async fn list_messages_raw(
+            &mut self,
+            max_results: u32,
+            query: Option<&str>,
+        ) -> Result<String> {
+            debug!(
+                "Listing raw messages with max_results={}, query={:?}",
+                max_results, query
+            );
+
             // Create string representation of max_results
             let max_results_str = max_results.to_string();
-            
+
             // Execute request
             let endpoint = "/users/me/messages";
-            
+
             // Handle query parameter differently to avoid lifetime issues
             if let Some(q) = query {
                 // Use separate array for each case
-                let params = [("maxResults", max_results_str.as_str()), ("q", q)];
-                self.request_raw(reqwest::Method::GET, endpoint, Some(&params)).await
+                let params = [
+                    ("maxResults", max_results_str.as_str()),
+                    ("q", q),
+                ];
+                self.request_raw(reqwest::Method::GET, endpoint, Some(&params))
+                    .await
             } else {
-                let params = [("maxResults", max_results_str.as_str())];
-                self.request_raw(reqwest::Method::GET, endpoint, Some(&params)).await
+                let params = [
+                    ("maxResults", max_results_str.as_str()),
+                ];
+                self.request_raw(reqwest::Method::GET, endpoint, Some(&params))
+                    .await
             }
+        }
+
+        /// Get message details with all metadata and content
+        pub async fn get_message_details(&mut self, message_id: &str) -> Result<EmailMessage> {
+            use base64;
+            
+            // First get the full message
+            let message_json = self.get_message_raw(message_id).await?;
+            
+            // Parse the JSON
+            let parsed: serde_json::Value = serde_json::from_str(&message_json)
+                .map_err(|e| GmailApiError::MessageFormatError(format!("Failed to parse message JSON: {}", e)))?;
+            
+            // Extract the basic message data
+            let id = parsed["id"].as_str()
+                .ok_or_else(|| GmailApiError::MessageFormatError("Message missing 'id' field".to_string()))?
+                .to_string();
+                
+            let thread_id = parsed["threadId"].as_str()
+                .ok_or_else(|| GmailApiError::MessageFormatError("Message missing 'threadId' field".to_string()))?
+                .to_string();
+            
+            // Extract metadata
+            let mut subject = None;
+            let mut from = None;
+            let mut to = None;
+            let mut date = None;
+            let mut snippet = None;
+            let mut body_text = None;
+            let mut body_html = None;
+            
+            // Extract snippet if available
+            if let Some(s) = parsed.get("snippet").and_then(|s| s.as_str()) {
+                snippet = Some(s.to_string());
+            }
+            
+            // Process payload to extract headers and body parts
+            if let Some(payload) = parsed.get("payload") {
+                // Extract headers
+                if let Some(headers) = payload.get("headers").and_then(|h| h.as_array()) {
+                    for header in headers {
+                        if let (Some(name), Some(value)) = (header.get("name").and_then(|n| n.as_str()), 
+                                                           header.get("value").and_then(|v| v.as_str())) {
+                            match name {
+                                "Subject" => subject = Some(value.to_string()),
+                                "From" => from = Some(value.to_string()),
+                                "To" => to = Some(value.to_string()),
+                                "Date" => date = Some(value.to_string()),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                
+                // Extract message body parts
+                if let Some(parts) = payload.get("parts").and_then(|p| p.as_array()) {
+                    // Process each part
+                    for part in parts {
+                        if let Some(mime_type) = part.get("mimeType").and_then(|m| m.as_str()) {
+                            // Handle text parts
+                            if mime_type == "text/plain" || mime_type == "text/html" {
+                                if let Some(body) = part.get("body") {
+                                    if let Some(data) = body.get("data").and_then(|d| d.as_str()) {
+                                        // Decode base64
+                                        if let Ok(decoded) = base64::decode(data.replace('-', "+").replace('_', "/")) {
+                                            if let Ok(text) = String::from_utf8(decoded) {
+                                                match mime_type {
+                                                    "text/plain" => body_text = Some(text),
+                                                    "text/html" => body_html = Some(text),
+                                                    _ => {}
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Check for body directly in payload (for simple messages)
+                if body_text.is_none() && body_html.is_none() {
+                    if let Some(body) = payload.get("body") {
+                        if let Some(data) = body.get("data").and_then(|d| d.as_str()) {
+                            // Decode base64
+                            if let Ok(decoded) = base64::decode(data.replace('-', "+").replace('_', "/")) {
+                                if let Ok(text) = String::from_utf8(decoded) {
+                                    if let Some(mime_type) = payload.get("mimeType").and_then(|m| m.as_str()) {
+                                        match mime_type {
+                                            "text/plain" => body_text = Some(text),
+                                            "text/html" => body_html = Some(text),
+                                            // Default to text if we can't determine
+                                            _ => body_text = Some(text),
+                                        }
+                                    } else {
+                                        body_text = Some(text);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Create the EmailMessage
+            Ok(EmailMessage {
+                id,
+                thread_id,
+                subject,
+                from,
+                to,
+                date,
+                snippet,
+                body_text,
+                body_html,
+            })
+        }
+
+        /// List messages and parse metadata into structured EmailMessage objects
+        pub async fn list_messages(
+            &mut self,
+            max_results: u32,
+            query: Option<&str>,
+        ) -> Result<Vec<EmailMessage>> {
+            // First get the list of message IDs
+            let raw_json = self.list_messages_raw(max_results, query).await?;
+
+            // Parse the raw JSON
+            let parsed: serde_json::Value = serde_json::from_str(&raw_json).map_err(|e| {
+                GmailApiError::MessageFormatError(format!("Failed to parse message list: {}", e))
+            })?;
+
+            // Extract messages array
+            let messages = parsed["messages"].as_array().ok_or_else(|| {
+                GmailApiError::MessageFormatError(
+                    "Missing 'messages' array in response".to_string(),
+                )
+            })?;
+
+            // Create EmailMessage structs by fetching details for each message ID
+            let mut result = Vec::new();
+
+            for message in messages {
+                let id = message["id"]
+                    .as_str()
+                    .ok_or_else(|| {
+                        GmailApiError::MessageFormatError("Message missing 'id' field".to_string())
+                    })?;
+
+                // Get full message details
+                match self.get_message_details(id).await {
+                    Ok(email) => {
+                        result.push(email);
+                    },
+                    Err(e) => {
+                        // Log error but continue with other messages
+                        error!("Failed to get details for message {}: {}", id, e);
+                    }
+                }
+                
+                // Limit to 3 messages to avoid timeout during development
+                if result.len() >= 3 {
+                    debug!("Reached limit of 3 messages, stopping fetch to avoid timeout");
+                    break;
+                }
+            }
+
+            Ok(result)
         }
 
         /// List labels and return raw JSON response
         pub async fn list_labels(&mut self) -> Result<String> {
             debug!("Listing labels");
-            
+
             let endpoint = "/users/me/labels";
             self.request_raw(reqwest::Method::GET, endpoint, None).await
         }
@@ -497,17 +714,17 @@ pub mod gmail_api {
         /// Check connection by getting profile and return raw JSON response
         pub async fn check_connection_raw(&mut self) -> Result<String> {
             debug!("Checking connection raw");
-            
+
             let endpoint = "/users/me/profile";
             self.request_raw(reqwest::Method::GET, endpoint, None).await
         }
-        
+
         /// Check connection by getting profile and return email and message count
         pub async fn check_connection(&mut self) -> Result<(String, u64)> {
             debug!("Checking connection");
-            
+
             let endpoint = "/users/me/profile";
-            
+
             #[derive(Deserialize)]
             struct Profile {
                 #[serde(rename = "emailAddress")]
@@ -515,12 +732,12 @@ pub mod gmail_api {
                 #[serde(rename = "messagesTotal")]
                 messages_total: Option<u64>,
             }
-            
+
             let profile: Profile = self.request(reqwest::Method::GET, endpoint, None).await?;
-            
+
             let email = profile.email_address;
             let messages_total = profile.messages_total.unwrap_or(0);
-            
+
             Ok((email, messages_total))
         }
     }
@@ -602,21 +819,21 @@ pub mod server {
     use mcp_attr::{Error as McpError, Result as McpResult};
 
     use crate::config::{Config, ConfigError};
-    use crate::gmail_api::{GmailService, GmailApiError};
-    
-    // Helper functions 
+    use crate::gmail_api::{GmailApiError, GmailService};
+
+    // Helper functions
     mod helpers {
         use log::debug;
-        
+
         /// Converts a serde_json::Value (string or number) to u32 with a default value
         ///
         /// # Arguments
         ///
-        /// * `value` - Optional JSON value containing either a number or string 
+        /// * `value` - Optional JSON value containing either a number or string
         /// * `default` - Default value to use if conversion fails or value is None
         ///
         /// # Returns
-        /// 
+        ///
         /// A u32 value, either converted from input or the provided default
         pub fn parse_max_results(value: Option<serde_json::Value>, default: u32) -> u32 {
             match value {
@@ -642,7 +859,10 @@ pub mod server {
                             match s.parse::<u32>() {
                                 Ok(n) => n,
                                 Err(_) => {
-                                    debug!("Could not parse string '{}' as u32, using default {}", s, default);
+                                    debug!(
+                                        "Could not parse string '{}' as u32, using default {}",
+                                        s, default
+                                    );
                                     default
                                 }
                             }
@@ -665,20 +885,20 @@ pub mod server {
     mod error_codes {
         /// Configuration related errors (environment variables, etc.)
         pub const CONFIG_ERROR: u32 = 1001;
-        
+
         /// Authentication errors (tokens, OAuth, etc.)
         pub const AUTH_ERROR: u32 = 1002;
-        
+
         /// API errors from Gmail
         pub const API_ERROR: u32 = 1003;
-        
+
         /// Message format/missing field errors
         pub const MESSAGE_FORMAT_ERROR: u32 = 1005;
-        
+
         /// General application errors for unspecified issues
         #[allow(dead_code)]
         pub const GENERAL_ERROR: u32 = 1000;
-        
+
         // Map error codes to human-readable descriptions
         pub fn get_error_description(code: u32) -> &'static str {
             match code {
@@ -690,7 +910,7 @@ pub mod server {
                 _ => "Unknown Error: An unclassified error occurred",
             }
         }
-        
+
         // Get detailed troubleshooting steps for each error code
         pub fn get_troubleshooting_steps(code: u32) -> &'static str {
             match code {
@@ -716,23 +936,26 @@ pub mod server {
         // Helper function to create detailed McpError with appropriate error code and context
         fn to_mcp_error(&self, message: &str, code: u32) -> McpError {
             use error_codes::{get_error_description, get_troubleshooting_steps};
-            
+
             // Get the generic description for this error code
             let description = get_error_description(code);
-            
+
             // Get troubleshooting steps
             let steps = get_troubleshooting_steps(code);
-            
+
             // Create a detailed error message with multiple parts
             let detailed_error = format!(
                 "ERROR CODE {}: {}\n\nDETAILS: {}\n\nTROUBLESHOOTING: {}\n\nSERVER MESSAGE: {}", 
                 code, description, message, steps, 
                 "If the problem persists, contact the server administrator and reference this error code."
             );
-            
+
             // Log the full error details
-            error!("Creating MCP error: {} (code: {})\n{}", message, code, detailed_error);
-            
+            error!(
+                "Creating MCP error: {} (code: {})\n{}",
+                message, code, detailed_error
+            );
+
             // Create the MCP error with the detailed message
             // Use with_message instead of set_message, setting is_public to true to show the message to the client
             McpError::new(ErrorCode(code as i64)).with_message(detailed_error, true)
@@ -743,7 +966,10 @@ pub mod server {
             match err {
                 GmailApiError::ApiError(e) => {
                     // Analyze the error message to provide more context
-                    let (code, detailed_msg) = if e.contains("quota") || e.contains("rate") || e.contains("limit") {
+                    let (code, detailed_msg) = if e.contains("quota")
+                        || e.contains("rate")
+                        || e.contains("limit")
+                    {
                         (
                             error_codes::API_ERROR,
                             format!(
@@ -753,7 +979,10 @@ pub mod server {
                                 e
                             )
                         )
-                    } else if e.contains("network") || e.contains("connection") || e.contains("timeout") {
+                    } else if e.contains("network")
+                        || e.contains("connection")
+                        || e.contains("timeout")
+                    {
                         (
                             error_codes::API_ERROR,
                             format!(
@@ -763,7 +992,10 @@ pub mod server {
                                 e
                             )
                         )
-                    } else if e.contains("authentication") || e.contains("auth") || e.contains("token") {
+                    } else if e.contains("authentication")
+                        || e.contains("auth")
+                        || e.contains("token")
+                    {
                         (
                             error_codes::AUTH_ERROR,
                             format!(
@@ -773,7 +1005,10 @@ pub mod server {
                                 e
                             )
                         )
-                    } else if e.contains("format") || e.contains("missing field") || e.contains("parse") {
+                    } else if e.contains("format")
+                        || e.contains("missing field")
+                        || e.contains("parse")
+                    {
                         (
                             error_codes::MESSAGE_FORMAT_ERROR,
                             format!(
@@ -802,9 +1037,9 @@ pub mod server {
                             )
                         )
                     };
-                    
+
                     self.to_mcp_error(&detailed_msg, code)
-                },
+                }
                 GmailApiError::AuthError(e) => {
                     let detailed_msg = format!(
                         "Gmail authentication error: {}. Failed to authenticate with the Gmail API using the provided \
@@ -812,7 +1047,7 @@ pub mod server {
                         e
                     );
                     self.to_mcp_error(&detailed_msg, error_codes::AUTH_ERROR)
-                },
+                }
                 GmailApiError::MessageRetrievalError(e) => {
                     let detailed_msg = format!(
                         "Message retrieval error: {}. Failed to retrieve the requested message from Gmail. \
@@ -820,14 +1055,14 @@ pub mod server {
                         e
                     );
                     self.to_mcp_error(&detailed_msg, error_codes::API_ERROR)
-                },
+                }
                 GmailApiError::MessageFormatError(e) => {
                     let detailed_msg = format!(
                         "Message format error: {}. The Gmail API returned a malformed message or one with missing required fields.", 
                         e
                     );
                     self.to_mcp_error(&detailed_msg, error_codes::MESSAGE_FORMAT_ERROR)
-                },
+                }
                 GmailApiError::NetworkError(e) => {
                     let detailed_msg = format!(
                         "Network error: {}. The server couldn't establish a connection to the Gmail API. \
@@ -836,7 +1071,7 @@ pub mod server {
                         e
                     );
                     self.to_mcp_error(&detailed_msg, error_codes::API_ERROR)
-                },
+                }
                 GmailApiError::RateLimitError(e) => {
                     let detailed_msg = format!(
                         "Rate limit error: {}. The Gmail API has rate-limited the server's requests. \
@@ -846,7 +1081,7 @@ pub mod server {
                         e
                     );
                     self.to_mcp_error(&detailed_msg, error_codes::API_ERROR)
-                },
+                }
             }
         }
 
@@ -903,7 +1138,7 @@ pub mod server {
 
         /// Get a list of emails from the inbox
         ///
-        /// Returns the raw JSON response from the Gmail API without any transformation.
+        /// Returns emails with subject, sender, recipient, date and snippet information.
         ///
         /// Args:
         ///   max_results: Optional maximum number of results to return (default: 10). Can be a number (3) or a string ("3").
@@ -926,9 +1161,16 @@ pub mod server {
             // Get the Gmail service
             let mut service = self.init_gmail_service().await?;
 
-            // Get raw message list JSON directly from the API without transformation
-            let messages_json = match service.list_messages_raw(max, query.as_deref()).await {
-                Ok(json) => json,
+            // Get messages with full metadata
+            let result = match service.list_messages(max, query.as_deref()).await {
+                Ok(messages) => {
+                    // Convert to JSON
+                    serde_json::to_string(&messages).map_err(|e| {
+                        let error_msg = format!("Failed to serialize message list: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+                    })?
+                }
                 Err(err) => {
                     let query_info = query.as_deref().unwrap_or("none");
                     error!(
@@ -937,7 +1179,6 @@ pub mod server {
                     );
                     
                     // Create detailed contextual error
-                    // Include detailed context in the error log
                     error!("Context: Failed to list emails with parameters: max_results={}, query='{}'", 
                         max, query_info
                     );
@@ -945,14 +1186,13 @@ pub mod server {
                     return Err(self.map_gmail_error(err));
                 }
             };
-
+            
             info!("=== END list_emails MCP command (success) ===");
-            Ok(messages_json)
+            Ok(result)
         }
-
         /// Get details for a specific email
         ///
-        /// Returns the raw JSON response from the Gmail API without any transformation or modification.
+        /// Returns the message with all metadata and content parsed into a structured format.
         ///
         /// Args:
         ///   message_id: The ID of the message to retrieve
@@ -964,29 +1204,38 @@ pub mod server {
             // Get the Gmail service
             let mut service = self.init_gmail_service().await?;
 
-            // Get message as raw JSON
-            let message_json = match service.get_message_raw(&message_id).await {
-                Ok(json) => json,
+            // Get detailed message directly using the helper method
+            let email = match service.get_message_details(&message_id).await {
+                Ok(email) => email,
                 Err(err) => {
-                    error!("Failed to get email with message_id='{}': {}", message_id, err);
-                    
+                    error!(
+                        "Failed to get email with message_id='{}': {}",
+                        message_id, err
+                    );
+
                     // Create detailed contextual error
-                    // Include detailed context in the error log
-                    error!("Context: Failed to retrieve email with ID: '{}'", 
+                    error!(
+                        "Context: Failed to retrieve email with ID: '{}'",
                         message_id
                     );
-                    
+
                     return Err(self.map_gmail_error(err));
                 }
             };
 
-            info!("=== END get_email MCP command (success) ===");
-            Ok(message_json)
-        }
+            // Convert to JSON
+            let result = serde_json::to_string(&email).map_err(|e| {
+                let error_msg = format!("Failed to serialize email: {}", e);
+                error!("{}", error_msg);
+                self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+            })?;
 
+            info!("=== END get_email MCP command (success) ===");
+            Ok(result)
+        }
         /// Search for emails using a Gmail search query
         ///
-        /// Returns the raw JSON response from the Gmail API without any transformation or modification.
+        /// Returns emails with subject, sender, recipient, date and snippet information.
         ///
         /// Args:
         ///   query: Gmail search query string (e.g. "is:unread from:example.com")
@@ -1002,31 +1251,38 @@ pub mod server {
                 "search_emails called with query={:?}, max_results={:?}",
                 query, max_results
             );
-            
+
             // Get the parsed max_results value
             let max = helpers::parse_max_results(max_results, 10);
-            
+
             // Get the Gmail service
             let mut service = self.init_gmail_service().await?;
-            
-            // Get raw message list JSON
-            let messages_json = match service.list_messages_raw(max, Some(&query)).await {
-                Ok(json) => json,
+
+            // Get messages with full metadata
+            let result = match service.list_messages(max, Some(&query)).await {
+                Ok(messages) => {
+                    // Convert to JSON
+                    serde_json::to_string(&messages).map_err(|e| {
+                        let error_msg = format!("Failed to serialize message list: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+                    })?
+                }
                 Err(err) => {
-                    error!("Failed to search emails with query='{}', max_results={}: {}", query, max, err);
-                    
-                    // Create detailed contextual error with specific advice for search queries
-                    // Include detailed context in the error log
-                    error!("Context: Failed to search emails with query: '{}'", 
-                        query
+                    error!(
+                        "Failed to search emails with query='{}', max_results={}: {}",
+                        query, max, err
                     );
-                    
+
+                    // Create detailed contextual error with specific advice for search queries
+                    error!("Context: Failed to search emails with query: '{}'", query);
+
                     return Err(self.map_gmail_error(err));
                 }
             };
-                
+
             info!("=== END search_emails MCP command (success) ===");
-            Ok(messages_json)
+            Ok(result)
         }
 
         /// Get a list of email labels
@@ -1044,11 +1300,11 @@ pub mod server {
                 Ok(labels) => Ok(labels),
                 Err(err) => {
                     error!("Failed to list labels: {}", err);
-                    
+
                     // Provide detailed error with troubleshooting steps
                     // Include detailed context in the error log
                     error!("Context: Failed to retrieve Gmail labels. This operation requires read access permissions.");
-                    
+
                     Err(self.map_gmail_error(err))
                 }
             }
@@ -1071,11 +1327,11 @@ pub mod server {
                 Ok(json) => json,
                 Err(err) => {
                     error!("Connection check failed: {}", err);
-                    
+
                     // Provide helpful information on connectivity issues
                     // Include detailed context in the error log
                     error!("Context: Failed to connect to Gmail API. This is a basic connectivity test failure.");
-                    
+
                     return Err(self.map_gmail_error(err));
                 }
             };
@@ -1111,7 +1367,7 @@ pub mod auth {
     const GMAIL_SCOPE: &str = "https://mail.google.com/";
     const OAUTH_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/auth";
     const OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
-    
+
     // Local server config
     const DEFAULT_PORT: u16 = 8080;
     const DEFAULT_HOST: &str = "127.0.0.1";
@@ -1158,41 +1414,45 @@ pub mod auth {
     pub async fn run_oauth_flow() -> Result<(), String> {
         // Attempt to load existing credentials
         let _ = dotenv();
-        
+
         // Get client ID and secret from environment or prompt user
         let client_id = env::var("GMAIL_CLIENT_ID").unwrap_or_else(|_| {
             println!("Enter your Google OAuth client ID:");
             let mut input = String::new();
-            std::io::stdin().read_line(&mut input).expect("Failed to read input");
+            std::io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read input");
             input.trim().to_string()
         });
 
         let client_secret = env::var("GMAIL_CLIENT_SECRET").unwrap_or_else(|_| {
             println!("Enter your Google OAuth client secret:");
             let mut input = String::new();
-            std::io::stdin().read_line(&mut input).expect("Failed to read input");
+            std::io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read input");
             input.trim().to_string()
         });
-        
+
         // Generate a random state token for CSRF protection
         let state_token = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        
+
         // Set up the redirect URI for the local callback server
         let port = env::var("OAUTH_PORT")
             .ok()
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(DEFAULT_PORT);
-            
+
         let host = env::var("OAUTH_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string());
         let redirect_uri = format!("http://{}:{}/oauth/callback", host, port);
-        
+
         // Create a shared state to store the authorization code
         let oauth_state = Arc::new(Mutex::new(OAuthState {
             auth_code: None,
             state_token: Some(state_token.clone()),
             complete: false,
         }));
-        
+
         // Build the authorization URL
         let auth_url = build_auth_url(
             &client_id,
@@ -1200,32 +1460,28 @@ pub mod auth {
             &state_token,
             &[GMAIL_SCOPE.to_string()],
         )?;
-        
+
         // Start the local web server to handle the OAuth callback
         let server_handle = start_oauth_server(port, host.clone(), oauth_state.clone());
-        
+
         // Open the authorization URL in the default browser
         println!("Opening browser to authorize with Google...");
         println!("\nAuthorization URL: {}", auth_url);
-        
+
         if let Err(e) = webbrowser::open(&auth_url) {
             println!("Failed to open web browser automatically: {}", e);
             println!("Please manually open the URL in your browser to continue.");
         }
-        
+
         // Wait for the authorization to complete
         println!("Waiting for authorization...");
         let auth_code = wait_for_auth_code(oauth_state).await?;
-        
+
         // Exchange the authorization code for tokens
         println!("Exchanging authorization code for tokens...");
-        let tokens = exchange_code_for_tokens(
-            &client_id,
-            &client_secret,
-            &auth_code,
-            &redirect_uri,
-        ).await?;
-        
+        let tokens =
+            exchange_code_for_tokens(&client_id, &client_secret, &auth_code, &redirect_uri).await?;
+
         // Update the .env file with the new tokens
         println!("Updating credentials in .env file...");
         update_env_file(
@@ -1235,15 +1491,15 @@ pub mod auth {
             &tokens.access_token,
             &redirect_uri,
         )?;
-        
+
         // Shut down the server
         server_handle.abort();
-        
+
         println!("\n🎉 Authentication successful! New tokens have been saved to .env file.");
-        
+
         Ok(())
     }
-    
+
     // Build the authorization URL
     fn build_auth_url(
         client_id: &str,
@@ -1252,7 +1508,7 @@ pub mod auth {
         scopes: &[String],
     ) -> Result<String, String> {
         let mut url = Url::parse(OAUTH_AUTH_URL).map_err(|e| e.to_string())?;
-        
+
         // Add required OAuth parameters
         {
             let mut query = url.query_pairs_mut();
@@ -1265,11 +1521,11 @@ pub mod auth {
             query.append_pair("prompt", "consent"); // Ensure we always get a refresh token
             query.finish();
         }
-        
+
         // Return the URL
         Ok(url.to_string())
     }
-    
+
     // Start a local web server to handle the OAuth callback
     fn start_oauth_server(
         port: u16,
@@ -1278,61 +1534,76 @@ pub mod auth {
     ) -> tokio::task::JoinHandle<()> {
         // Create the router with callback and index routes
         let app = Router::new()
-            .route("/", get(|| async { Html("<h1>Gmail OAuth Server</h1><p>Waiting for OAuth callback...</p>") }))
-            .route("/oauth/callback", get(move |query| handle_callback(query, state.clone())));
-        
+            .route(
+                "/",
+                get(|| async {
+                    Html("<h1>Gmail OAuth Server</h1><p>Waiting for OAuth callback...</p>")
+                }),
+            )
+            .route(
+                "/oauth/callback",
+                get(move |query| handle_callback(query, state.clone())),
+            );
+
         // Start the server in a background task
         tokio::spawn(async move {
             let addr = format!("{host}:{port}").parse::<SocketAddr>().unwrap();
             println!("\nStarting OAuth callback server on http://{host}:{port}");
-            
+
             let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
             if let Err(e) = axum::serve(listener, app).await {
                 error!("Server error: {}", e);
             }
         })
     }
-    
+
     // Handle the OAuth callback from Google
     async fn handle_callback(
         Query(params): Query<CallbackParams>,
         state: Arc<Mutex<OAuthState>>,
     ) -> Html<String> {
         let mut oauth_state = state.lock().await;
-        
+
         // Check for errors
         if let Some(error) = params.error {
             oauth_state.complete = true;
-            return Html(format!("<html>
+            return Html(format!(
+                "<html>
 <head><title>OAuth Error</title></head>
 <body>
     <h1>OAuth Error</h1>
     <p>An error occurred during authentication: {}</p>
     <p>Please close this window and try again.</p>
 </body>
-</html>", error));
+</html>",
+                error
+            ));
         }
-        
+
         // Check state token to prevent CSRF attacks
         if params.state != oauth_state.state_token {
             oauth_state.complete = true;
-            return Html("<html>
+            return Html(
+                "<html>
 <head><title>Authentication Failed</title></head>
 <body>
     <h1>Authentication Failed</h1>
     <p>Invalid state parameter. This could be a CSRF attack attempt.</p>
     <p>Please close this window and try again.</p>
 </body>
-</html>".to_string());
+</html>"
+                    .to_string(),
+            );
         }
-        
+
         // Store the authorization code
         if let Some(code) = params.code {
             oauth_state.auth_code = Some(code);
             oauth_state.complete = true;
-            
+
             // Return success page
-            Html("<html>
+            Html(
+                "<html>
 <head>
     <title>Authentication Successful</title>
     <style>
@@ -1347,49 +1618,54 @@ pub mod auth {
     <p>You have successfully authenticated with Google.</p>
     <p>You can now close this window and return to the application.</p>
 </body>
-</html>".to_string())
+</html>"
+                    .to_string(),
+            )
         } else {
             oauth_state.complete = true;
-            
+
             // Missing authorization code
-            Html("<html>
+            Html(
+                "<html>
 <head><title>Authentication Failed</title></head>
 <body>
     <h1>Authentication Failed</h1>
     <p>No authorization code received from Google.</p>
     <p>Please close this window and try again.</p>
 </body>
-</html>".to_string())
+</html>"
+                    .to_string(),
+            )
         }
     }
-    
+
     // Wait for the authorization code to be received
     async fn wait_for_auth_code(state: Arc<Mutex<OAuthState>>) -> Result<String, String> {
         // Poll for the authorization code with a timeout
         let max_wait_seconds = 300; // 5 minutes
         let poll_interval = std::time::Duration::from_secs(1);
-        
+
         for _ in 0..max_wait_seconds {
             let oauth_state = state.lock().await;
-            
+
             // Check if we have the authorization code
             if let Some(code) = oauth_state.auth_code.clone() {
                 return Ok(code);
             }
-            
+
             // Check if the flow completed with an error
             if oauth_state.complete {
                 return Err("Authorization failed. Check the browser for details.".to_string());
             }
-            
+
             // Release the lock and wait before trying again
             drop(oauth_state);
             tokio::time::sleep(poll_interval).await;
         }
-        
+
         Err("Timed out waiting for authorization. Please try again.".to_string())
     }
-    
+
     // Exchange the authorization code for access and refresh tokens
     async fn exchange_code_for_tokens(
         client_id: &str,
@@ -1398,7 +1674,7 @@ pub mod auth {
         redirect_uri: &str,
     ) -> Result<TokenResponse, String> {
         let client = reqwest::Client::new();
-        
+
         // Prepare the token request parameters
         let params = [
             ("code", auth_code),
@@ -1407,7 +1683,7 @@ pub mod auth {
             ("redirect_uri", redirect_uri),
             ("grant_type", "authorization_code"),
         ];
-        
+
         // Make the token request
         let response = client
             .post(OAUTH_TOKEN_URL)
@@ -1415,26 +1691,30 @@ pub mod auth {
             .send()
             .await
             .map_err(|e| format!("Failed to exchange code for tokens: {}", e))?;
-        
+
         // Check for error responses
         let status = response.status();
         if !status.is_success() {
-            let error_text = response.text().await
+            let error_text = response
+                .text()
+                .await
                 .unwrap_or_else(|_| "<no response body>".to_string());
-                
+
             return Err(format!(
                 "Failed to exchange code for tokens. Status: {}, Error: {}",
                 status, error_text
             ));
         }
-        
+
         // Parse the token response
-        let tokens: TokenResponse = response.json().await
+        let tokens: TokenResponse = response
+            .json()
+            .await
             .map_err(|e| format!("Failed to parse token response: {}", e))?;
-        
+
         Ok(tokens)
     }
-    
+
     // Update the .env file with the new tokens
     fn update_env_file(
         client_id: &str,
@@ -1446,13 +1726,13 @@ pub mod auth {
         // Check if .env file exists
         let env_path = ".env";
         let env_exists = Path::new(env_path).exists();
-        
+
         // Create or update the .env file
         if env_exists {
             // Read existing .env content
             let content = std::fs::read_to_string(env_path)
                 .map_err(|e| format!("Failed to read .env file: {}", e))?;
-                
+
             // Parse the content into a HashMap
             let mut env_vars = HashMap::new();
             for line in content.lines() {
@@ -1460,33 +1740,32 @@ pub mod auth {
                 if line.starts_with('#') || line.trim().is_empty() {
                     continue;
                 }
-                
+
                 // Parse key-value pairs
                 if let Some(pos) = line.find('=') {
                     let key = line[..pos].trim().to_string();
-                    let value = line[pos+1..].trim().to_string();
+                    let value = line[pos + 1..].trim().to_string();
                     env_vars.insert(key, value);
                 }
             }
-            
+
             // Update the values
             env_vars.insert("GMAIL_CLIENT_ID".to_string(), client_id.to_string());
             env_vars.insert("GMAIL_CLIENT_SECRET".to_string(), client_secret.to_string());
             env_vars.insert("GMAIL_REFRESH_TOKEN".to_string(), refresh_token.to_string());
             env_vars.insert("GMAIL_ACCESS_TOKEN".to_string(), access_token.to_string());
             env_vars.insert("GMAIL_REDIRECT_URI".to_string(), redirect_uri.to_string());
-            
+
             // Build the new content
             let mut new_content = String::new();
             new_content.push_str("# Gmail API OAuth2 credentials\n");
             for (key, value) in &env_vars {
                 new_content.push_str(&format!("{key}={value}\n"));
             }
-            
+
             // Write the updated content back to the file
             std::fs::write(env_path, new_content)
                 .map_err(|e| format!("Failed to write to .env file: {}", e))?;
-                
         } else {
             // Create a new .env file
             let mut file = OpenOptions::new()
@@ -1495,7 +1774,7 @@ pub mod auth {
                 .truncate(true)
                 .open(env_path)
                 .map_err(|e| format!("Failed to create .env file: {}", e))?;
-                
+
             // Write the credentials
             writeln!(file, "# Gmail API OAuth2 credentials")
                 .map_err(|e| format!("Failed to write to .env file: {}", e))?;
@@ -1510,28 +1789,27 @@ pub mod auth {
             writeln!(file, "GMAIL_REDIRECT_URI={}", redirect_uri)
                 .map_err(|e| format!("Failed to write to .env file: {}", e))?;
         }
-        
+
         Ok(())
     }
-    
+
     // Utility to test the saved credentials
     pub async fn test_credentials() -> Result<String, String> {
         // Load the config from environment
-        let config = Config::from_env()
-            .map_err(|e| format!("Failed to load credentials: {}", e))?;
-        
+        let config =
+            Config::from_env().map_err(|e| format!("Failed to load credentials: {}", e))?;
+
         // Create a Gmail service client
         let mut service = crate::gmail_api::GmailService::new(&config)
             .map_err(|e| format!("Failed to create Gmail service: {}", e))?;
-        
+
         // Try to check the connection
         match service.check_connection().await {
-            Ok((email, count)) => {
-                Ok(format!("Successfully connected to Gmail for {}! Found {} messages.", email, count))
-            },
-            Err(e) => {
-                Err(format!("Failed to connect to Gmail: {}", e))
-            }
+            Ok((email, count)) => Ok(format!(
+                "Successfully connected to Gmail for {}! Found {} messages.",
+                email, count
+            )),
+            Err(e) => Err(format!("Failed to connect to Gmail: {}", e)),
         }
     }
 }

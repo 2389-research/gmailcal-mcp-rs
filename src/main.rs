@@ -19,11 +19,11 @@ enum Commands {
     /// Run the MCP server (default if no command specified)
     #[clap(name = "server")]
     Server,
-    
+
     /// Run the OAuth authentication flow to get new credentials
     #[clap(name = "auth")]
     Auth,
-    
+
     /// Test the current credentials
     #[clap(name = "test")]
     Test,
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse command line arguments
     let cli = Cli::parse();
-    
+
     // Determine which command to run
     match cli.command {
         Some(Commands::Auth) => {
@@ -47,14 +47,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
             return Ok(());
-        },
+        }
         Some(Commands::Test) => {
             println!("Testing Gmail credentials...");
             match auth::test_credentials().await {
                 Ok(result) => {
                     println!("{}\n", result);
                     println!("✅ Credentials are valid and working!");
-                },
+                }
                 Err(e) => {
                     eprintln!("❌ Credential test failed: {}", e);
                     eprintln!("\nRun 'cargo run -- auth' to refresh your credentials.");
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             return Ok(());
-        },
+        }
         Some(Commands::Server) | None => {
             // Continue with server startup
         }
