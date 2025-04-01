@@ -47,6 +47,16 @@ cargo build --release
 ./target/release/mcp-gmailcal
 ```
 
+#### Running in Read-Only Environments (e.g., Claude)
+When running in read-only environments like Claude AI, use the `--memory-only` flag to prevent file system writes:
+```bash
+cargo run -- --memory-only
+# or
+./target/release/mcp-gmailcal --memory-only
+```
+
+This will use in-memory logging (via stderr) instead of attempting to write log files to disk.
+
 ### 5. Configure Claude to Use the MCP Server
 1. Add the MCP server via Claude Code CLI:
    ```bash
