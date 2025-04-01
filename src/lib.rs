@@ -258,6 +258,9 @@ pub mod gmail_api {
         pub body: String,
         pub cc: Option<String>,
         pub bcc: Option<String>,
+        pub thread_id: Option<String>,
+        pub in_reply_to: Option<String>,
+        pub references: Option<String>,
     }
 
     // Gmail API error types
@@ -782,6 +785,15 @@ pub mod gmail_api {
             if let Some(bcc) = &draft.bcc {
                 message.push_str(&format!("Bcc: {}\r\n", bcc));
             }
+            
+            // Add threading headers for replies
+            if let Some(in_reply_to) = &draft.in_reply_to {
+                message.push_str(&format!("In-Reply-To: {}\r\n", in_reply_to));
+            }
+            
+            if let Some(references) = &draft.references {
+                message.push_str(&format!("References: {}\r\n", references));
+            }
 
             // Add body
             message.push_str("\r\n");
@@ -793,10 +805,20 @@ pub mod gmail_api {
                 .replace('/', "_");
 
             // Create the JSON payload
+            let mut message_payload = serde_json::json!({
+                "raw": encoded_message
+            });
+            
+            // Add thread_id if specified
+            if let Some(thread_id) = &draft.thread_id {
+                message_payload = serde_json::json!({
+                    "raw": encoded_message,
+                    "threadId": thread_id
+                });
+            }
+            
             let payload = serde_json::json!({
-                "message": {
-                    "raw": encoded_message
-                }
+                "message": message_payload
             });
 
             // Make the request to create a draft
@@ -1792,6 +1814,9 @@ pub mod server {
         ///   body: Plain text content of the email
         ///   cc: Optional CC recipient(s). Multiple addresses should be comma-separated.
         ///   bcc: Optional BCC recipient(s). Multiple addresses should be comma-separated.
+        ///   thread_id: Optional Gmail thread ID to associate this email with
+        ///   in_reply_to: Optional Message-ID that this email is replying to
+        ///   references: Optional comma-separated list of Message-IDs in the email thread
         #[tool]
         async fn create_draft_email(
             &self,
@@ -1800,11 +1825,14 @@ pub mod server {
             body: String,
             cc: Option<String>,
             bcc: Option<String>,
+            thread_id: Option<String>,
+            in_reply_to: Option<String>,
+            references: Option<String>,
         ) -> McpResult<String> {
             info!("=== START create_draft_email MCP command ===");
             debug!(
-                "create_draft_email called with to={}, subject={}, cc={:?}, bcc={:?}",
-                to, subject, cc, bcc
+                "create_draft_email called with to={}, subject={}, cc={:?}, bcc={:?}, thread_id={:?}, in_reply_to={:?}",
+                to, subject, cc, bcc, thread_id, in_reply_to
             );
 
             // Validate email addresses
@@ -1821,6 +1849,9 @@ pub mod server {
                 body,
                 cc,
                 bcc,
+                thread_id,
+                in_reply_to,
+                references,
             };
 
             // Get the Gmail service
@@ -1830,11 +1861,16 @@ pub mod server {
             match service.create_draft(&draft).await {
                 Ok(draft_id) => {
                     // Create success response
-                    let result = json!({
+                    let mut result = json!({
                         "status": "success",
                         "draft_id": draft_id,
                         "message": "Draft email created successfully."
                     });
+                    
+                    // Add threading info to response if provided
+                    if let Some(ref thread_id_val) = draft.thread_id {
+                        result["thread_id"] = json!(thread_id_val);
+                    }
 
                     // Convert to string
                     let result_json = serde_json::to_string_pretty(&result).map_err(|e| {
