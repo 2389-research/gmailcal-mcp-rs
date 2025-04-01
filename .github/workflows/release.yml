@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Build release
+        run: cargo build --release
+      
+      - name: Strip binary
+        run: strip target/release/mcp-gmailcal
+      
+      - name: Bundle release assets
+        run: |
+          mkdir -p dist
+          cp target/release/mcp-gmailcal dist/
+          cd dist && tar -czf mcp-gmailcal-linux-x86_64.tar.gz mcp-gmailcal
+      
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/mcp-gmailcal-linux-x86_64.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Build release
+        run: cargo build --release
+      
+      - name: Bundle release assets
+        run: |
+          mkdir -p dist
+          cp target/release/mcp-gmailcal dist/
+          cd dist && tar -czf mcp-gmailcal-macos-x86_64.tar.gz mcp-gmailcal
+      
+      - name: Upload macOS Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/mcp-gmailcal-macos-x86_64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
