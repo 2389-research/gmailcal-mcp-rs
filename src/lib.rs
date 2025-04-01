@@ -249,6 +249,16 @@ pub mod gmail_api {
         pub body_text: Option<String>,
         pub body_html: Option<String>,
     }
+    
+    // Draft email model for creating new emails
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct DraftEmail {
+        pub to: String,
+        pub subject: String,
+        pub body: String,
+        pub cc: Option<String>,
+        pub bcc: Option<String>,
+    }
 
     // Gmail API error types
     #[derive(Debug, Error)]
@@ -751,6 +761,104 @@ pub mod gmail_api {
 
             Ok((email, messages_total))
         }
+        
+        /// Create a draft email in Gmail
+        pub async fn create_draft(&mut self, draft: &DraftEmail) -> Result<String> {
+            debug!("Creating draft email to: {}", draft.to);
+            
+            // Construct the RFC 5322 formatted message
+            let mut message = format!(
+                "From: me\r\n\
+                 To: {}\r\n\
+                 Subject: {}\r\n",
+                draft.to, draft.subject
+            );
+            
+            // Add optional CC and BCC fields
+            if let Some(cc) = &draft.cc {
+                message.push_str(&format!("Cc: {}\r\n", cc));
+            }
+            
+            if let Some(bcc) = &draft.bcc {
+                message.push_str(&format!("Bcc: {}\r\n", bcc));
+            }
+            
+            // Add body
+            message.push_str("\r\n");
+            message.push_str(&draft.body);
+            
+            // Base64 encode the message
+            let encoded_message = base64::encode(message.as_bytes())
+                .replace('+', "-")
+                .replace('/', "_");
+            
+            // Create the JSON payload
+            let payload = serde_json::json!({
+                "message": {
+                    "raw": encoded_message
+                }
+            });
+            
+            // Make the request to create a draft
+            let endpoint = "/users/me/drafts";
+            
+            // Get valid access token
+            let token = self.token_manager.get_token(&self.client).await?;
+            
+            let url = format!("{}{}", GMAIL_API_BASE_URL, endpoint);
+            debug!("Creating draft at: {}", url);
+            
+            // Send the request
+            let response = self.client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .json(&payload)
+                .send()
+                .await
+                .map_err(|e| {
+                    error!("Network error creating draft: {}", e);
+                    GmailApiError::NetworkError(e.to_string())
+                })?;
+            
+            // Handle response
+            let status = response.status();
+            debug!("Draft creation response status: {}", status);
+            
+            if !status.is_success() {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<no response body>".to_string());
+
+                error!("Failed to create draft: {}", error_text);
+                return Err(GmailApiError::ApiError(format!(
+                    "Failed to create draft. Status: {}, Error: {}",
+                    status, error_text
+                )));
+            }
+            
+            // Parse the response to get the draft ID
+            let response_text = response.text().await.map_err(|e| {
+                error!("Failed to get response body: {}", e);
+                GmailApiError::NetworkError(format!("Failed to get response body: {}", e))
+            })?;
+            
+            // Parse the JSON response
+            let response_json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+                error!("Failed to parse draft response: {}", e);
+                GmailApiError::MessageFormatError(format!("Failed to parse draft response: {}", e))
+            })?;
+            
+            // Extract the draft ID
+            let draft_id = response_json["id"].as_str().ok_or_else(|| {
+                GmailApiError::MessageFormatError("Draft response missing 'id' field".to_string())
+            })?.to_string();
+            
+            debug!("Draft created successfully with ID: {}", draft_id);
+            
+            Ok(draft_id)
+        }
     }
 }
 
@@ -758,11 +866,11 @@ pub mod gmail_api {
 pub mod logging {
     use chrono::Local;
     use log::LevelFilter;
-    use simplelog::{self, CombinedLogger, WriteLogger};
+    use simplelog::{self, CombinedLogger, TermLogger, WriteLogger};
     use std::fs::OpenOptions;
     use std::io::Write;
 
-    /// Sets up logging to file and optionally console
+    /// Sets up logging to file and stderr
     ///
     /// # Arguments
     ///
@@ -801,21 +909,21 @@ pub mod logging {
         // Use the default config for simplicity - explicitly use simplelog::Config to avoid ambiguity
         let log_config = simplelog::Config::default();
 
-        // During development, consider uncommenting the second logger to see logs on console too
+        // Setup loggers to write to both file and stderr
         CombinedLogger::init(vec![
             // File logger
-            WriteLogger::new(log_level, log_config, log_file),
-            // Uncomment for console logging during development
-            // TermLogger::new(
-            //     log_level,
-            //     simplelog::Config::default(),
-            //     simplelog::TerminalMode::Mixed,
-            //     simplelog::ColorChoice::Auto
-            // ),
+            WriteLogger::new(log_level, log_config.clone(), log_file),
+            // Terminal logger for stderr
+            TermLogger::new(
+                log_level,
+                log_config,
+                simplelog::TerminalMode::Stderr,
+                simplelog::ColorChoice::Auto
+            ),
         ])
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        log::info!("Logging initialized to file: {}", log_path);
+        log::info!("Logging initialized to file: {} and stderr", log_path);
         log::debug!("Debug logging enabled");
 
         Ok(log_path)
@@ -1650,6 +1758,82 @@ pub mod server {
             info!("=== END batch_analyze_emails MCP command (success) ===");
             Ok(result_json)
         }
+        
+        /// Create a draft email
+        ///
+        /// Creates a new draft email in Gmail with the specified content.
+        /// The email will be saved as a draft and can be edited before sending.
+        ///
+        /// Args:
+        ///   to: Email address(es) of the recipient(s). Multiple addresses should be comma-separated.
+        ///   subject: Subject line of the email
+        ///   body: Plain text content of the email
+        ///   cc: Optional CC recipient(s). Multiple addresses should be comma-separated.
+        ///   bcc: Optional BCC recipient(s). Multiple addresses should be comma-separated.
+        #[tool]
+        async fn create_draft_email(
+            &self,
+            to: String,
+            subject: String,
+            body: String,
+            cc: Option<String>,
+            bcc: Option<String>,
+        ) -> McpResult<String> {
+            info!("=== START create_draft_email MCP command ===");
+            debug!(
+                "create_draft_email called with to={}, subject={}, cc={:?}, bcc={:?}",
+                to, subject, cc, bcc
+            );
+            
+            // Validate email addresses
+            if to.is_empty() {
+                let error_msg = "Recipient (to) is required for creating a draft email";
+                error!("{}", error_msg);
+                return Err(self.to_mcp_error(error_msg, error_codes::MESSAGE_FORMAT_ERROR));
+            }
+            
+            // Create the draft email object
+            let draft = crate::gmail_api::DraftEmail {
+                to,
+                subject,
+                body,
+                cc,
+                bcc,
+            };
+            
+            // Get the Gmail service
+            let mut service = self.init_gmail_service().await?;
+            
+            // Create the draft
+            match service.create_draft(&draft).await {
+                Ok(draft_id) => {
+                    // Create success response
+                    let result = json!({
+                        "status": "success",
+                        "draft_id": draft_id,
+                        "message": "Draft email created successfully."
+                    });
+                    
+                    // Convert to string
+                    let result_json = serde_json::to_string_pretty(&result).map_err(|e| {
+                        let error_msg = format!("Failed to serialize draft creation result: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+                    })?;
+                    
+                    info!("=== END create_draft_email MCP command (success) ===");
+                    Ok(result_json)
+                },
+                Err(err) => {
+                    error!("Failed to create draft email: {}", err);
+                    
+                    // Create detailed error context for the user
+                    error!("Context: Failed to create draft email with subject: '{}'", draft.subject);
+                    
+                    Err(self.map_gmail_error(err))
+                }
+            }
+        }
     }
 }
 
@@ -1664,19 +1848,21 @@ pub mod prompts {
     pub const GMAIL_MASTER_PROMPT: &str = r#"
 # Gmail Assistant
 
-You have access to email data through a Gmail MCP server. Your role is to help users manage, analyze, and extract insights from their emails. You can search emails, read messages, and provide summaries and analyses.
+You have access to email data through a Gmail MCP server. Your role is to help users manage, analyze, and extract insights from their emails. You can search emails, read messages, provide summaries and analyses, and create draft emails.
 
 ## Capabilities
 - List and search emails with various criteria
 - Get detailed content of specific emails
 - Analyze email content, sentiment, and context
 - Extract action items, summaries, and key points
+- Create draft emails that can be edited before sending
 
 ## Important Notes
 - Handle email data with privacy and security in mind
 - Format email data in a readable way
 - Highlight important information from emails
 - Extract action items and tasks when relevant
+- When creating draft emails, follow best email writing practices
 "#;
 
     /// Analysis prompt for email content
