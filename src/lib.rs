@@ -249,7 +249,7 @@ pub mod gmail_api {
         pub body_text: Option<String>,
         pub body_html: Option<String>,
     }
-    
+
     // Draft email model for creating new emails
     #[derive(Serialize, Deserialize, Debug, Clone)]
     pub struct DraftEmail {
@@ -761,11 +761,11 @@ pub mod gmail_api {
 
             Ok((email, messages_total))
         }
-        
+
         /// Create a draft email in Gmail
         pub async fn create_draft(&mut self, draft: &DraftEmail) -> Result<String> {
             debug!("Creating draft email to: {}", draft.to);
-            
+
             // Construct the RFC 5322 formatted message
             let mut message = format!(
                 "From: me\r\n\
@@ -773,43 +773,44 @@ pub mod gmail_api {
                  Subject: {}\r\n",
                 draft.to, draft.subject
             );
-            
+
             // Add optional CC and BCC fields
             if let Some(cc) = &draft.cc {
                 message.push_str(&format!("Cc: {}\r\n", cc));
             }
-            
+
             if let Some(bcc) = &draft.bcc {
                 message.push_str(&format!("Bcc: {}\r\n", bcc));
             }
-            
+
             // Add body
             message.push_str("\r\n");
             message.push_str(&draft.body);
-            
+
             // Base64 encode the message
             let encoded_message = base64::encode(message.as_bytes())
                 .replace('+', "-")
                 .replace('/', "_");
-            
+
             // Create the JSON payload
             let payload = serde_json::json!({
                 "message": {
                     "raw": encoded_message
                 }
             });
-            
+
             // Make the request to create a draft
             let endpoint = "/users/me/drafts";
-            
+
             // Get valid access token
             let token = self.token_manager.get_token(&self.client).await?;
-            
+
             let url = format!("{}{}", GMAIL_API_BASE_URL, endpoint);
             debug!("Creating draft at: {}", url);
-            
+
             // Send the request
-            let response = self.client
+            let response = self
+                .client
                 .post(&url)
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
@@ -820,11 +821,11 @@ pub mod gmail_api {
                     error!("Network error creating draft: {}", e);
                     GmailApiError::NetworkError(e.to_string())
                 })?;
-            
+
             // Handle response
             let status = response.status();
             debug!("Draft creation response status: {}", status);
-            
+
             if !status.is_success() {
                 let error_text = response
                     .text()
@@ -837,26 +838,35 @@ pub mod gmail_api {
                     status, error_text
                 )));
             }
-            
+
             // Parse the response to get the draft ID
             let response_text = response.text().await.map_err(|e| {
                 error!("Failed to get response body: {}", e);
                 GmailApiError::NetworkError(format!("Failed to get response body: {}", e))
             })?;
-            
+
             // Parse the JSON response
-            let response_json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
-                error!("Failed to parse draft response: {}", e);
-                GmailApiError::MessageFormatError(format!("Failed to parse draft response: {}", e))
-            })?;
-            
+            let response_json: serde_json::Value =
+                serde_json::from_str(&response_text).map_err(|e| {
+                    error!("Failed to parse draft response: {}", e);
+                    GmailApiError::MessageFormatError(format!(
+                        "Failed to parse draft response: {}",
+                        e
+                    ))
+                })?;
+
             // Extract the draft ID
-            let draft_id = response_json["id"].as_str().ok_or_else(|| {
-                GmailApiError::MessageFormatError("Draft response missing 'id' field".to_string())
-            })?.to_string();
-            
+            let draft_id = response_json["id"]
+                .as_str()
+                .ok_or_else(|| {
+                    GmailApiError::MessageFormatError(
+                        "Draft response missing 'id' field".to_string(),
+                    )
+                })?
+                .to_string();
+
             debug!("Draft created successfully with ID: {}", draft_id);
-            
+
             Ok(draft_id)
         }
     }
@@ -896,7 +906,6 @@ pub mod logging {
         // Create the log file with append mode and write header in one operation
         let mut log_file = OpenOptions::new()
             .create(true)
-            .write(true)
             .append(true)
             .open(&log_path)?;
 
@@ -918,7 +927,7 @@ pub mod logging {
                 log_level,
                 log_config,
                 simplelog::TerminalMode::Stderr,
-                simplelog::ColorChoice::Auto
+                simplelog::ColorChoice::Auto,
             ),
         ])
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -1048,6 +1057,12 @@ pub mod server {
     #[derive(Clone)]
     pub struct GmailServer;
 
+    impl Default for GmailServer {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl GmailServer {
         pub fn new() -> Self {
             GmailServer {}
@@ -1066,7 +1081,7 @@ pub mod server {
             // Create a detailed error message with multiple parts
             let detailed_error = format!(
                 "ERROR CODE {}: {}\n\nDETAILS: {}\n\nTROUBLESHOOTING: {}\n\nSERVER MESSAGE: {}", 
-                code, description, message, steps, 
+                code, description, message, steps,
                 "If the problem persists, contact the server administrator and reference this error code."
             );
 
@@ -1675,7 +1690,7 @@ pub mod server {
             info!("=== END analyze_email MCP command (success) ===");
             Ok(result_json)
         }
-        
+
         /// Batch analyze multiple emails
         ///
         /// Takes a list of email IDs and performs quick analysis on each one.
@@ -1683,27 +1698,34 @@ pub mod server {
         ///
         /// Args:
         ///   message_ids: List of email IDs to analyze
-        ///   analysis_type: Optional type of analysis to perform. Can be "summary", "tasks", 
+        ///   analysis_type: Optional type of analysis to perform. Can be "summary", "tasks",
         ///                  "priority", or "category". Default is "summary".
         #[tool]
-        async fn batch_analyze_emails(&self, message_ids: Vec<String>, analysis_type: Option<String>) -> McpResult<String> {
+        async fn batch_analyze_emails(
+            &self,
+            message_ids: Vec<String>,
+            analysis_type: Option<String>,
+        ) -> McpResult<String> {
             info!("=== START batch_analyze_emails MCP command ===");
             debug!(
                 "batch_analyze_emails called with {} messages, analysis_type={:?}",
-                message_ids.len(), analysis_type
+                message_ids.len(),
+                analysis_type
             );
-            
+
             // Get the Gmail service
             let mut service = self.init_gmail_service().await?;
-            
+
             // Determine what type of analysis to perform
-            let analysis = analysis_type.unwrap_or_else(|| "summary".to_string()).to_lowercase();
-            
+            let analysis = analysis_type
+                .unwrap_or_else(|| "summary".to_string())
+                .to_lowercase();
+
             // Analyze each email
             let mut results = Vec::new();
             for id in message_ids {
                 debug!("Analyzing email {}", id);
-                
+
                 // Get the specified email
                 match service.get_message_details(&id).await {
                     Ok(email) => {
@@ -1714,7 +1736,7 @@ pub mod server {
                             "category" => crate::prompts::EMAIL_CATEGORIZATION_PROMPT,
                             _ => crate::prompts::EMAIL_SUMMARIZATION_PROMPT, // Default to summary
                         };
-                        
+
                         // Create analysis result
                         let result = json!({
                             "email_id": email.id,
@@ -1725,13 +1747,13 @@ pub mod server {
                             "content": email.body_text.unwrap_or_else(|| email.snippet.unwrap_or_default()),
                             "analysis_prompt": analysis_prompt
                         });
-                        
+
                         results.push(result);
-                    },
+                    }
                     Err(err) => {
                         // Log error but continue with other emails
                         error!("Failed to analyze email {}: {}", id, err);
-                        
+
                         // Add error entry to results
                         results.push(json!({
                             "email_id": id,
@@ -1740,25 +1762,25 @@ pub mod server {
                     }
                 }
             }
-            
+
             // Create a batch result
             let batch_result = json!({
                 "analysis_type": analysis,
                 "email_count": results.len(),
                 "results": results
             });
-            
+
             // Convert to string
             let result_json = serde_json::to_string_pretty(&batch_result).map_err(|e| {
                 let error_msg = format!("Failed to serialize batch analysis result: {}", e);
                 error!("{}", error_msg);
                 self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
             })?;
-            
+
             info!("=== END batch_analyze_emails MCP command (success) ===");
             Ok(result_json)
         }
-        
+
         /// Create a draft email
         ///
         /// Creates a new draft email in Gmail with the specified content.
@@ -1784,14 +1806,14 @@ pub mod server {
                 "create_draft_email called with to={}, subject={}, cc={:?}, bcc={:?}",
                 to, subject, cc, bcc
             );
-            
+
             // Validate email addresses
             if to.is_empty() {
                 let error_msg = "Recipient (to) is required for creating a draft email";
                 error!("{}", error_msg);
                 return Err(self.to_mcp_error(error_msg, error_codes::MESSAGE_FORMAT_ERROR));
             }
-            
+
             // Create the draft email object
             let draft = crate::gmail_api::DraftEmail {
                 to,
@@ -1800,10 +1822,10 @@ pub mod server {
                 cc,
                 bcc,
             };
-            
+
             // Get the Gmail service
             let mut service = self.init_gmail_service().await?;
-            
+
             // Create the draft
             match service.create_draft(&draft).await {
                 Ok(draft_id) => {
@@ -1813,23 +1835,26 @@ pub mod server {
                         "draft_id": draft_id,
                         "message": "Draft email created successfully."
                     });
-                    
+
                     // Convert to string
                     let result_json = serde_json::to_string_pretty(&result).map_err(|e| {
                         let error_msg = format!("Failed to serialize draft creation result: {}", e);
                         error!("{}", error_msg);
                         self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
                     })?;
-                    
+
                     info!("=== END create_draft_email MCP command (success) ===");
                     Ok(result_json)
-                },
+                }
                 Err(err) => {
                     error!("Failed to create draft email: {}", err);
-                    
+
                     // Create detailed error context for the user
-                    error!("Context: Failed to create draft email with subject: '{}'", draft.subject);
-                    
+                    error!(
+                        "Context: Failed to create draft email with subject: '{}'",
+                        draft.subject
+                    );
+
                     Err(self.map_gmail_error(err))
                 }
             }
@@ -1843,7 +1868,7 @@ pub mod prompts {
     ///
     /// These prompts help Claude understand how to interact with Gmail data
     /// through the MCP server tools and provide useful analysis.
-
+    ///
     /// Master prompt for system context
     pub const GMAIL_MASTER_PROMPT: &str = r#"
 # Gmail Assistant
@@ -2236,6 +2261,7 @@ pub mod auth {
 
     // Structure for OAuth authorization parameters
     #[derive(Debug, Serialize)]
+    #[allow(dead_code)]
     struct AuthParams {
         client_id: String,
         redirect_uri: String,
@@ -2256,6 +2282,7 @@ pub mod auth {
 
     // Structure for the token response
     #[derive(Debug, Deserialize)]
+    #[allow(dead_code)]
     struct TokenResponse {
         access_token: String,
         expires_in: u64,
