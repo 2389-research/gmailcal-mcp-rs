@@ -43,6 +43,12 @@ fn test_configuration() {
     setup();
     // Verify that environment variables are properly loaded
     assert_eq!(env::var("GMAIL_CLIENT_ID").unwrap(), "test_client_id");
-    assert_eq!(env::var("GMAIL_CLIENT_SECRET").unwrap(), "test_client_secret");
-    assert_eq!(env::var("GMAIL_REFRESH_TOKEN").unwrap(), "test_refresh_token");
+    assert_eq!(
+        env::var("GMAIL_CLIENT_SECRET").unwrap(),
+        "test_client_secret"
+    );
+    assert_eq!(
+        env::var("GMAIL_REFRESH_TOKEN").unwrap(),
+        "test_refresh_token"
+    );
 }

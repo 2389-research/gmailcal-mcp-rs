@@ -1,13 +1,13 @@
+use mockall::mock;
 /// Mock Gmail API Client for Unit Testing
 ///
 /// This module provides mock implementations of the Gmail API client
 /// for use in unit testing.
 ///
 use mockall::predicate::*;
-use mockall::mock;
 use serde_json::{json, Value};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // Create a dummy email message structure for testing
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ impl TestEmail {
             body_html: format!("<html><body><p>This is the HTML body of email {}.</p></body></html>", id),
         }
     }
-    
+
     pub fn to_json(&self) -> Value {
         json!({
             "id": self.id,
@@ -60,7 +60,11 @@ pub fn create_test_emails() -> Vec<TestEmail> {
         TestEmail::new("456", "Project update", "colleague@example.com"),
         TestEmail::new("789", "Invoice #12345", "accounting@example.com"),
         TestEmail::new("101", "Weekly newsletter", "newsletter@example.com"),
-        TestEmail::new("112", "Action required: Task deadline", "project@example.com"),
+        TestEmail::new(
+            "112",
+            "Action required: Task deadline",
+            "project@example.com",
+        ),
     ]
 }
 
@@ -91,7 +95,7 @@ pub fn labels_to_json(labels: &[(String, String)]) -> Value {
             })
         })
         .collect();
-    
+
     json!(labels_json)
 }
 
@@ -109,65 +113,57 @@ mock! {
 // Helper to create a pre-configured mock client
 pub fn create_mock_client() -> MockGmailClient {
     let mut mock = MockGmailClient::new();
-    
+
     // Setup for list_messages
     let test_emails = create_test_emails();
     let emails_json: Vec<Value> = test_emails.iter().map(|e| e.to_json()).collect();
-    
-    mock.expect_list_messages()
-        .returning(move |_, query, _| {
-            // If query contains a filter, apply it
-            let filtered_emails = if let Some(q) = query {
-                let q = q.to_lowercase();
-                emails_json
-                    .iter()
-                    .filter(|e| {
-                        let subject = e["subject"].as_str().unwrap_or("").to_lowercase();
-                        let snippet = e["snippet"].as_str().unwrap_or("").to_lowercase();
-                        subject.contains(&q) || snippet.contains(&q)
-                    })
-                    .cloned()
-                    .collect::<Vec<Value>>()
-            } else {
-                emails_json.clone()
-            };
-            
-            Ok(json!(filtered_emails))
-        });
-    
-    // Setup for get_message
-    mock.expect_get_message()
-        .returning(move |id| {
-            // Find the email with the matching ID
-            let email = test_emails
+
+    mock.expect_list_messages().returning(move |_, query, _| {
+        // If query contains a filter, apply it
+        let filtered_emails = if let Some(q) = query {
+            let q = q.to_lowercase();
+            emails_json
                 .iter()
-                .find(|e| e.id == id)
-                .map(|e| e.to_json());
-            
-            match email {
-                Some(email) => Ok(email),
-                None => Err(format!("Email with ID {} not found", id)),
-            }
-        });
-    
+                .filter(|e| {
+                    let subject = e["subject"].as_str().unwrap_or("").to_lowercase();
+                    let snippet = e["snippet"].as_str().unwrap_or("").to_lowercase();
+                    subject.contains(&q) || snippet.contains(&q)
+                })
+                .cloned()
+                .collect::<Vec<Value>>()
+        } else {
+            emails_json.clone()
+        };
+
+        Ok(json!(filtered_emails))
+    });
+
+    // Setup for get_message
+    mock.expect_get_message().returning(move |id| {
+        // Find the email with the matching ID
+        let email = test_emails.iter().find(|e| e.id == id).map(|e| e.to_json());
+
+        match email {
+            Some(email) => Ok(email),
+            None => Err(format!("Email with ID {} not found", id)),
+        }
+    });
+
     // Setup for list_labels
     let test_labels = create_test_labels();
     mock.expect_list_labels()
-        .returning(move || {
-            Ok(labels_to_json(&test_labels))
-        });
-    
+        .returning(move || Ok(labels_to_json(&test_labels)));
+
     // Setup for get_profile
-    mock.expect_get_profile()
-        .returning(|| {
-            Ok(json!({
-                "email": "test@example.com",
-                "messagesTotal": 1253,
-                "threadsTotal": 893,
-                "historyId": "12345"
-            }))
-        });
-    
+    mock.expect_get_profile().returning(|| {
+        Ok(json!({
+            "email": "test@example.com",
+            "messagesTotal": 1253,
+            "threadsTotal": 893,
+            "historyId": "12345"
+        }))
+    });
+
     // Setup for create_draft
     mock.expect_create_draft()
         .returning(|to, subject, body, cc, bcc| {
@@ -184,7 +180,7 @@ pub fn create_mock_client() -> MockGmailClient {
                 }
             }))
         });
-    
+
     mock
 }
 

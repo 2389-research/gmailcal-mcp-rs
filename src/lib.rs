@@ -1,6 +1,7 @@
 pub use crate::config::Config;
 pub use crate::gmail_api::EmailMessage;
 pub use crate::logging::setup_logging;
+pub use crate::people_api::PeopleClient;
 pub use crate::prompts::*;
 /// Gmail MCP Server Implementation
 ///
@@ -785,12 +786,12 @@ pub mod gmail_api {
             if let Some(bcc) = &draft.bcc {
                 message.push_str(&format!("Bcc: {}\r\n", bcc));
             }
-            
+
             // Add threading headers for replies
             if let Some(in_reply_to) = &draft.in_reply_to {
                 message.push_str(&format!("In-Reply-To: {}\r\n", in_reply_to));
             }
-            
+
             if let Some(references) = &draft.references {
                 message.push_str(&format!("References: {}\r\n", references));
             }
@@ -808,7 +809,7 @@ pub mod gmail_api {
             let mut message_payload = serde_json::json!({
                 "raw": encoded_message
             });
-            
+
             // Add thread_id if specified
             if let Some(thread_id) = &draft.thread_id {
                 message_payload = serde_json::json!({
@@ -816,7 +817,7 @@ pub mod gmail_api {
                     "threadId": thread_id
                 });
             }
-            
+
             let payload = serde_json::json!({
                 "message": message_payload
             });
@@ -961,6 +962,470 @@ pub mod logging {
     }
 }
 
+// People API module for contact information
+pub mod people_api {
+    use crate::config::Config;
+    use log::{debug, error};
+    use reqwest::Client;
+    use serde::{Deserialize, Serialize};
+    use std::sync::Arc;
+    use thiserror::Error;
+    use tokio::sync::Mutex;
+
+    const PEOPLE_API_BASE_URL: &str = "https://people.googleapis.com/v1";
+
+    #[derive(Debug, Error)]
+    pub enum PeopleApiError {
+        #[error("Network error: {0}")]
+        NetworkError(String),
+
+        #[error("Authentication error: {0}")]
+        AuthError(String),
+
+        #[error("People API error: {0}")]
+        ApiError(String),
+
+        #[error("Invalid input: {0}")]
+        InvalidInput(String),
+
+        #[error("Parse error: {0}")]
+        ParseError(String),
+    }
+
+    type Result<T> = std::result::Result<T, PeopleApiError>;
+
+    // Contact information representation
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Contact {
+        pub resource_name: String,
+        pub name: Option<PersonName>,
+        pub email_addresses: Vec<EmailAddress>,
+        pub phone_numbers: Vec<PhoneNumber>,
+        pub organizations: Vec<Organization>,
+        pub photos: Vec<Photo>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct PersonName {
+        pub display_name: String,
+        pub given_name: Option<String>,
+        pub family_name: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct EmailAddress {
+        pub value: String,
+        pub type_: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct PhoneNumber {
+        pub value: String,
+        pub type_: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Organization {
+        pub name: Option<String>,
+        pub title: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Photo {
+        pub url: String,
+        pub default: bool,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct ContactList {
+        pub contacts: Vec<Contact>,
+        pub next_page_token: Option<String>,
+        pub total_items: Option<u32>,
+    }
+
+    // People API client
+    #[derive(Debug, Clone)]
+    pub struct PeopleClient {
+        client: Client,
+        token_manager: Arc<Mutex<crate::gmail_api::TokenManager>>,
+    }
+
+    impl PeopleClient {
+        pub fn new(config: &Config) -> Self {
+            let client = Client::new();
+            // Reuse the Gmail token manager since they share the same OAuth flow
+            let token_manager = Arc::new(Mutex::new(crate::gmail_api::TokenManager::new(config)));
+
+            Self {
+                client,
+                token_manager,
+            }
+        }
+
+        // Get a list of contacts
+        pub async fn list_contacts(&self, max_results: Option<u32>) -> Result<ContactList> {
+            let token = self
+                .token_manager
+                .lock()
+                .await
+                .get_token(&self.client)
+                .await
+                .map_err(|e| PeopleApiError::AuthError(e.to_string()))?;
+
+            let mut url = format!("{}/people/me/connections", PEOPLE_API_BASE_URL);
+
+            // Build query parameters
+            let mut query_parts = Vec::new();
+
+            // Request specific fields
+            let fields = [
+                "names",
+                "emailAddresses",
+                "phoneNumbers",
+                "organizations",
+                "photos",
+            ];
+            query_parts.push(format!("personFields={}", fields.join(",")));
+
+            if let Some(max) = max_results {
+                query_parts.push(format!("pageSize={}", max));
+            }
+
+            if !query_parts.is_empty() {
+                url = format!("{}?{}", url, query_parts.join("&"));
+            }
+
+            debug!("Listing contacts from: {}", url);
+
+            let response = self
+                .client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await
+                .map_err(|e| PeopleApiError::NetworkError(e.to_string()))?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<no response body>".to_string());
+                return Err(PeopleApiError::ApiError(format!(
+                    "Failed to list contacts. Status: {}, Error: {}",
+                    status, error_text
+                )));
+            }
+
+            let json_response = response
+                .json::<serde_json::Value>()
+                .await
+                .map_err(|e| PeopleApiError::ParseError(e.to_string()))?;
+
+            let mut contacts = Vec::new();
+
+            if let Some(connections) = json_response.get("connections").and_then(|v| v.as_array()) {
+                for connection in connections {
+                    if let Ok(contact) = self.parse_contact(connection) {
+                        contacts.push(contact);
+                    } else {
+                        // Log parsing error but continue with other contacts
+                        error!("Failed to parse contact: {:?}", connection);
+                    }
+                }
+            }
+
+            let next_page_token = json_response
+                .get("nextPageToken")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            let total_items = json_response
+                .get("totalItems")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as u32);
+
+            Ok(ContactList {
+                contacts,
+                next_page_token,
+                total_items,
+            })
+        }
+
+        // Search contacts by query
+        pub async fn search_contacts(
+            &self,
+            query: &str,
+            max_results: Option<u32>,
+        ) -> Result<ContactList> {
+            let token = self
+                .token_manager
+                .lock()
+                .await
+                .get_token(&self.client)
+                .await
+                .map_err(|e| PeopleApiError::AuthError(e.to_string()))?;
+
+            let mut url = format!("{}/people:searchContacts", PEOPLE_API_BASE_URL);
+
+            // Build query parameters
+            let mut query_parts = Vec::new();
+
+            // Add search query
+            query_parts.push(format!("query={}", query));
+
+            // Request specific fields
+            let fields = [
+                "names",
+                "emailAddresses",
+                "phoneNumbers",
+                "organizations",
+                "photos",
+            ];
+            query_parts.push(format!("readMask={}", fields.join(",")));
+
+            if let Some(max) = max_results {
+                query_parts.push(format!("pageSize={}", max));
+            }
+
+            if !query_parts.is_empty() {
+                url = format!("{}?{}", url, query_parts.join("&"));
+            }
+
+            debug!("Searching contacts: {}", url);
+
+            let response = self
+                .client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await
+                .map_err(|e| PeopleApiError::NetworkError(e.to_string()))?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<no response body>".to_string());
+                return Err(PeopleApiError::ApiError(format!(
+                    "Failed to search contacts. Status: {}, Error: {}",
+                    status, error_text
+                )));
+            }
+
+            let json_response = response
+                .json::<serde_json::Value>()
+                .await
+                .map_err(|e| PeopleApiError::ParseError(e.to_string()))?;
+
+            let mut contacts = Vec::new();
+
+            if let Some(results) = json_response.get("results").and_then(|v| v.as_array()) {
+                for result in results {
+                    if let Some(person) = result.get("person") {
+                        if let Ok(contact) = self.parse_contact(person) {
+                            contacts.push(contact);
+                        } else {
+                            // Log parsing error but continue with other contacts
+                            error!("Failed to parse contact: {:?}", person);
+                        }
+                    }
+                }
+            }
+
+            let next_page_token = json_response
+                .get("nextPageToken")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            let total_items = json_response
+                .get("totalPeople")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as u32);
+
+            Ok(ContactList {
+                contacts,
+                next_page_token,
+                total_items,
+            })
+        }
+
+        // Get contact by resource name
+        pub async fn get_contact(&self, resource_name: &str) -> Result<Contact> {
+            let token = self
+                .token_manager
+                .lock()
+                .await
+                .get_token(&self.client)
+                .await
+                .map_err(|e| PeopleApiError::AuthError(e.to_string()))?;
+
+            let mut url = format!("{}/{}", PEOPLE_API_BASE_URL, resource_name);
+
+            // Build query parameters for fields
+            let fields = [
+                "names",
+                "emailAddresses",
+                "phoneNumbers",
+                "organizations",
+                "photos",
+            ];
+            url = format!("{}?personFields={}", url, fields.join(","));
+
+            debug!("Getting contact: {}", url);
+
+            let response = self
+                .client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await
+                .map_err(|e| PeopleApiError::NetworkError(e.to_string()))?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<no response body>".to_string());
+                return Err(PeopleApiError::ApiError(format!(
+                    "Failed to get contact. Status: {}, Error: {}",
+                    status, error_text
+                )));
+            }
+
+            let json_response = response
+                .json::<serde_json::Value>()
+                .await
+                .map_err(|e| PeopleApiError::ParseError(e.to_string()))?;
+
+            self.parse_contact(&json_response)
+        }
+
+        // Helper method to parse a contact from API response
+        fn parse_contact(&self, data: &serde_json::Value) -> Result<Contact> {
+            let resource_name = data
+                .get("resourceName")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| PeopleApiError::ParseError("Missing resourceName".to_string()))?
+                .to_string();
+
+            // Parse name
+            let name = if let Some(names) = data.get("names").and_then(|v| v.as_array()) {
+                if let Some(primary_name) = names.first() {
+                    let display_name = primary_name
+                        .get("displayName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+
+                    let given_name = primary_name
+                        .get("givenName")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    let family_name = primary_name
+                        .get("familyName")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    Some(PersonName {
+                        display_name,
+                        given_name,
+                        family_name,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Parse email addresses
+            let mut email_addresses = Vec::new();
+            if let Some(emails) = data.get("emailAddresses").and_then(|v| v.as_array()) {
+                for email in emails {
+                    if let Some(value) = email.get("value").and_then(|v| v.as_str()) {
+                        let type_ = email
+                            .get("type")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        email_addresses.push(EmailAddress {
+                            value: value.to_string(),
+                            type_,
+                        });
+                    }
+                }
+            }
+
+            // Parse phone numbers
+            let mut phone_numbers = Vec::new();
+            if let Some(phones) = data.get("phoneNumbers").and_then(|v| v.as_array()) {
+                for phone in phones {
+                    if let Some(value) = phone.get("value").and_then(|v| v.as_str()) {
+                        let type_ = phone
+                            .get("type")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        phone_numbers.push(PhoneNumber {
+                            value: value.to_string(),
+                            type_,
+                        });
+                    }
+                }
+            }
+
+            // Parse organizations
+            let mut organizations = Vec::new();
+            if let Some(orgs) = data.get("organizations").and_then(|v| v.as_array()) {
+                for org in orgs {
+                    let name = org
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    let title = org
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    organizations.push(Organization { name, title });
+                }
+            }
+
+            // Parse photos
+            let mut photos = Vec::new();
+            if let Some(pics) = data.get("photos").and_then(|v| v.as_array()) {
+                for pic in pics {
+                    if let Some(url) = pic.get("url").and_then(|v| v.as_str()) {
+                        let default = pic
+                            .get("default")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+
+                        photos.push(Photo {
+                            url: url.to_string(),
+                            default,
+                        });
+                    }
+                }
+            }
+
+            Ok(Contact {
+                resource_name,
+                name,
+                email_addresses,
+                phone_numbers,
+                organizations,
+                photos,
+            })
+        }
+    }
+}
+
 // Module with the server implementation
 pub mod server {
     use log::{debug, error, info};
@@ -1089,9 +1554,11 @@ pub mod server {
         pub fn new() -> Self {
             GmailServer {}
         }
-        
+
         // Private method to initialize the Calendar service
-        async fn init_calendar_service(&self) -> Result<crate::calendar_api::CalendarClient, McpError> {
+        async fn init_calendar_service(
+            &self,
+        ) -> Result<crate::calendar_api::CalendarClient, McpError> {
             // Load the config
             let config = Config::from_env().map_err(|e| {
                 error!("Failed to load OAuth configuration: {}", e);
@@ -1103,6 +1570,21 @@ pub mod server {
 
             // Create the calendar client
             Ok(crate::calendar_api::CalendarClient::new(&config))
+        }
+
+        // Private method to initialize the People API service
+        async fn init_people_service(&self) -> Result<crate::people_api::PeopleClient, McpError> {
+            // Load the config
+            let config = Config::from_env().map_err(|e| {
+                error!("Failed to load OAuth configuration: {}", e);
+                self.to_mcp_error(
+                    &format!("Configuration error: {}", e),
+                    error_codes::CONFIG_ERROR,
+                )
+            })?;
+
+            // Create the people client
+            Ok(crate::people_api::PeopleClient::new(&config))
         }
 
         // Helper function to create detailed McpError with appropriate error code and context
@@ -1881,7 +2363,7 @@ pub mod server {
                         "draft_id": draft_id,
                         "message": "Draft email created successfully."
                     });
-                    
+
                     // Add threading info to response if provided
                     if let Some(ref thread_id_val) = draft.thread_id {
                         result["thread_id"] = json!(thread_id_val);
@@ -1910,7 +2392,130 @@ pub mod server {
                 }
             }
         }
-        
+
+        /// List contacts
+        ///
+        /// This command retrieves a list of contacts from Google Contacts.
+        ///
+        /// # Parameters
+        ///
+        /// * `max_results` - Optional. The maximum number of contacts to return.
+        ///
+        /// # Returns
+        ///
+        /// A JSON string containing the contact list
+        #[tool]
+        async fn list_contacts(&self, max_results: Option<u32>) -> McpResult<String> {
+            info!("=== START list_contacts MCP command ===");
+            debug!("list_contacts called with max_results={:?}", max_results);
+
+            // Initialize the People API client
+            let people_client = self.init_people_service().await?;
+
+            match people_client.list_contacts(max_results).await {
+                Ok(contacts) => {
+                    // Convert to JSON
+                    serde_json::to_string(&contacts).map_err(|e| {
+                        let error_msg = format!("Failed to serialize contact list: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::GENERAL_ERROR)
+                    })
+                }
+                Err(err) => {
+                    error!("Failed to list contacts: {}", err);
+                    Err(self.to_mcp_error(
+                        &format!("Failed to list contacts: {}", err),
+                        error_codes::API_ERROR,
+                    ))
+                }
+            }
+        }
+
+        /// Search contacts
+        ///
+        /// This command searches for contacts matching the query.
+        ///
+        /// # Parameters
+        ///
+        /// * `query` - The search query.
+        /// * `max_results` - Optional. The maximum number of contacts to return.
+        ///
+        /// # Returns
+        ///
+        /// A JSON string containing the matching contacts
+        #[tool]
+        async fn search_contacts(
+            &self,
+            query: String,
+            max_results: Option<u32>,
+        ) -> McpResult<String> {
+            info!("=== START search_contacts MCP command ===");
+            debug!(
+                "search_contacts called with query=\"{}\" and max_results={:?}",
+                query, max_results
+            );
+
+            // Initialize the People API client
+            let people_client = self.init_people_service().await?;
+
+            match people_client.search_contacts(&query, max_results).await {
+                Ok(contacts) => {
+                    // Convert to JSON
+                    serde_json::to_string(&contacts).map_err(|e| {
+                        let error_msg =
+                            format!("Failed to serialize contact search results: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::GENERAL_ERROR)
+                    })
+                }
+                Err(err) => {
+                    error!("Failed to search contacts: {}", err);
+                    Err(self.to_mcp_error(
+                        &format!("Failed to search contacts: {}", err),
+                        error_codes::API_ERROR,
+                    ))
+                }
+            }
+        }
+
+        /// Get contact
+        ///
+        /// This command retrieves a specific contact by resource name.
+        ///
+        /// # Parameters
+        ///
+        /// * `resource_name` - The resource name of the contact to retrieve.
+        ///
+        /// # Returns
+        ///
+        /// A JSON string containing the contact details
+        #[tool]
+        async fn get_contact(&self, resource_name: String) -> McpResult<String> {
+            info!("=== START get_contact MCP command ===");
+            debug!("get_contact called with resource_name={}", resource_name);
+
+            // Initialize the People API client
+            let people_client = self.init_people_service().await?;
+
+            match people_client.get_contact(&resource_name).await {
+                Ok(contact) => {
+                    // Convert to JSON
+                    serde_json::to_string(&contact).map_err(|e| {
+                        let error_msg = format!("Failed to serialize contact: {}", e);
+                        error!("{}", error_msg);
+                        self.to_mcp_error(&error_msg, error_codes::GENERAL_ERROR)
+                    })
+                }
+                Err(err) => {
+                    error!("Failed to get contact: {}", err);
+                    Err(self.to_mcp_error(
+                        &format!("Failed to get contact: {}", err),
+                        error_codes::API_ERROR,
+                    ))
+                }
+            }
+        }
+
         /// List all available calendars
         ///
         /// This command retrieves a list of all calendars the user has access to.
@@ -1945,7 +2550,7 @@ pub mod server {
                 }
             }
         }
-        
+
         /// List events from a calendar
         ///
         /// This command retrieves events from a specified calendar, with options for filtering.
@@ -1976,16 +2581,17 @@ pub mod server {
 
             // Use primary calendar if not specified
             let calendar_id = calendar_id.unwrap_or_else(|| "primary".to_string());
-            
+
             // Convert max_results using the helper function (default: 10)
             let max = helpers::parse_max_results(max_results, 10);
-            
+
             // Parse time bounds if provided
             let time_min_parsed = if let Some(t) = time_min {
                 match chrono::DateTime::parse_from_rfc3339(&t) {
                     Ok(dt) => Some(dt.with_timezone(&chrono::Utc)),
                     Err(e) => {
-                        let error_msg = format!("Invalid time_min format (expected RFC3339): {}", e);
+                        let error_msg =
+                            format!("Invalid time_min format (expected RFC3339): {}", e);
                         error!("{}", error_msg);
                         return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
                     }
@@ -1993,12 +2599,13 @@ pub mod server {
             } else {
                 None
             };
-            
+
             let time_max_parsed = if let Some(t) = time_max {
                 match chrono::DateTime::parse_from_rfc3339(&t) {
                     Ok(dt) => Some(dt.with_timezone(&chrono::Utc)),
                     Err(e) => {
-                        let error_msg = format!("Invalid time_max format (expected RFC3339): {}", e);
+                        let error_msg =
+                            format!("Invalid time_max format (expected RFC3339): {}", e);
                         error!("{}", error_msg);
                         return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
                     }
@@ -2011,12 +2618,10 @@ pub mod server {
             let service = self.init_calendar_service().await?;
 
             // Get the events
-            match service.list_events(
-                &calendar_id,
-                Some(max),
-                time_min_parsed,
-                time_max_parsed,
-            ).await {
+            match service
+                .list_events(&calendar_id, Some(max), time_min_parsed, time_max_parsed)
+                .await
+            {
                 Ok(events) => {
                     // Convert to JSON
                     serde_json::to_string(&events).map_err(|e| {
@@ -2031,13 +2636,16 @@ pub mod server {
                         calendar_id, err
                     );
                     Err(self.to_mcp_error(
-                        &format!("Failed to list events from calendar {}: {}", calendar_id, err),
+                        &format!(
+                            "Failed to list events from calendar {}: {}",
+                            calendar_id, err
+                        ),
                         error_codes::API_ERROR,
                     ))
                 }
             }
         }
-        
+
         /// Get a single calendar event
         ///
         /// This command retrieves a specific event from a calendar.
@@ -2084,13 +2692,16 @@ pub mod server {
                         event_id, calendar_id, err
                     );
                     Err(self.to_mcp_error(
-                        &format!("Failed to get event {} from calendar {}: {}", event_id, calendar_id, err),
+                        &format!(
+                            "Failed to get event {} from calendar {}: {}",
+                            event_id, calendar_id, err
+                        ),
                         error_codes::API_ERROR,
                     ))
                 }
             }
         }
-        
+
         /// Create a new calendar event
         ///
         /// This command creates a new event in the specified calendar.
@@ -2127,7 +2738,7 @@ pub mod server {
 
             // Use primary calendar if not specified
             let calendar_id = calendar_id.unwrap_or_else(|| "primary".to_string());
-            
+
             // Parse start and end times
             let start_dt = match chrono::DateTime::parse_from_rfc3339(&start_time) {
                 Ok(dt) => dt.with_timezone(&chrono::Utc),
@@ -2137,7 +2748,7 @@ pub mod server {
                     return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
                 }
             };
-            
+
             let end_dt = match chrono::DateTime::parse_from_rfc3339(&end_time) {
                 Ok(dt) => dt.with_timezone(&chrono::Utc),
                 Err(e) => {
@@ -2146,17 +2757,19 @@ pub mod server {
                     return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
                 }
             };
-            
+
             // Create attendee objects from email strings
-            let attendee_objs = attendees.unwrap_or_default().into_iter().map(|email| {
-                crate::calendar_api::Attendee {
+            let attendee_objs = attendees
+                .unwrap_or_default()
+                .into_iter()
+                .map(|email| crate::calendar_api::Attendee {
                     email,
                     display_name: None,
                     response_status: Some("needsAction".to_string()),
                     optional: None,
-                }
-            }).collect();
-            
+                })
+                .collect();
+
             // Create the event
             let event = crate::calendar_api::CalendarEvent {
                 id: None,
@@ -2191,7 +2804,10 @@ pub mod server {
                         calendar_id, err
                     );
                     Err(self.to_mcp_error(
-                        &format!("Failed to create event in calendar {}: {}", calendar_id, err),
+                        &format!(
+                            "Failed to create event in calendar {}: {}",
+                            calendar_id, err
+                        ),
                         error_codes::API_ERROR,
                     ))
                 }
@@ -2570,6 +3186,7 @@ pub mod auth {
     use log::error;
     use rand::distributions::{Alphanumeric, DistString};
     use serde::{Deserialize, Serialize};
+    use serde_json;
     use std::collections::HashMap;
     use std::env;
     use std::fs::OpenOptions;
@@ -2580,10 +3197,12 @@ pub mod auth {
     use tokio::sync::Mutex;
     use url::Url;
 
-    // OAuth scopes needed for Gmail and Calendar access
+    // OAuth scopes needed for Gmail, Calendar, and People API access
     const GMAIL_SCOPE: &str = "https://mail.google.com/";
     const CALENDAR_READ_SCOPE: &str = "https://www.googleapis.com/auth/calendar.readonly";
     const CALENDAR_WRITE_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
+    const CONTACTS_READ_SCOPE: &str = "https://www.googleapis.com/auth/contacts.readonly";
+    const DIRECTORY_READ_SCOPE: &str = "https://www.googleapis.com/auth/directory.readonly";
     const OAUTH_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/auth";
     const OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
@@ -2674,7 +3293,7 @@ pub mod auth {
             complete: false,
         }));
 
-        // Build the authorization URL with both Gmail and Calendar scopes
+        // Build the authorization URL with Gmail, Calendar, and People API scopes
         let auth_url = build_auth_url(
             &client_id,
             &redirect_uri,
@@ -2683,6 +3302,8 @@ pub mod auth {
                 GMAIL_SCOPE.to_string(),
                 CALENDAR_READ_SCOPE.to_string(),
                 CALENDAR_WRITE_SCOPE.to_string(),
+                CONTACTS_READ_SCOPE.to_string(),
+                DIRECTORY_READ_SCOPE.to_string(),
             ],
         )?;
 
@@ -2720,7 +3341,9 @@ pub mod auth {
         // Shut down the server
         server_handle.abort();
 
-        println!("\n🎉 Authentication successful! New tokens have been saved to .env file.");
+        println!("\n🎉 Authentication successful!");
+        println!("✅ New tokens have been saved to .env file");
+        println!("✅ Claude Desktop config saved to claude_desktop_config.json");
 
         Ok(())
     }
@@ -2940,7 +3563,7 @@ pub mod auth {
         Ok(tokens)
     }
 
-    // Update the .env file with the new tokens
+    // Update the .env file with the new tokens and generate Claude Desktop config
     fn update_env_file(
         client_id: &str,
         client_secret: &str,
@@ -3015,6 +3638,63 @@ pub mod auth {
                 .map_err(|e| format!("Failed to write to .env file: {}", e))?;
         }
 
+        // Also generate the Claude Desktop config file
+        generate_claude_desktop_config(client_id, client_secret, refresh_token, access_token)
+            .map_err(|e| format!("Failed to create Claude Desktop config: {}", e))?;
+
+        Ok(())
+    }
+    
+    // Generate the Claude Desktop configuration file
+    fn generate_claude_desktop_config(
+        client_id: &str,
+        client_secret: &str,
+        refresh_token: &str,
+        access_token: &str,
+    ) -> Result<(), String> {
+        use serde_json::{json, to_string_pretty};
+        
+        // Determine the executable path
+        let current_exe = std::env::current_exe()
+            .map_err(|e| format!("Failed to get current executable path: {}", e))?;
+        
+        // Get the target/release version of the path if possible
+        let mut command_path = current_exe.to_string_lossy().to_string();
+        if let Some(debug_index) = command_path.find("target/debug") {
+            // If we're running in debug mode, use the release path for the config
+            command_path = format!(
+                "{}target/release/mcp-gmailcal",
+                &command_path[0..debug_index]
+            );
+        }
+        
+        // Create the config JSON
+        let config = json!({
+            "mcpServers": {
+                "gmailcal": {
+                    "command": command_path,
+                    "args": ["--memory-only"],
+                    "env": {
+                        "GMAIL_CLIENT_ID": client_id,
+                        "GMAIL_CLIENT_SECRET": client_secret,
+                        "GMAIL_REFRESH_TOKEN": refresh_token,
+                        "GMAIL_ACCESS_TOKEN": access_token
+                    }
+                }
+            }
+        });
+        
+        // Convert to pretty JSON
+        let json_string = to_string_pretty(&config)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+            
+        // Write to file
+        let config_path = "claude_desktop_config.json";
+        std::fs::write(config_path, json_string)
+            .map_err(|e| format!("Failed to write config file: {}", e))?;
+            
+        println!("Claude Desktop config saved to {}", config_path);
+        
         Ok(())
     }
 
@@ -3148,9 +3828,7 @@ pub mod calendar_api {
         pub fn new(config: &Config) -> Self {
             let client = Client::new();
             // Reuse the Gmail token manager since they share the same OAuth scope
-            let token_manager = Arc::new(Mutex::new(
-                crate::gmail_api::TokenManager::new(config),
-            ));
+            let token_manager = Arc::new(Mutex::new(crate::gmail_api::TokenManager::new(config)));
 
             Self {
                 client,
@@ -3187,8 +3865,7 @@ pub mod calendar_api {
                     .unwrap_or_else(|_| "<no response body>".to_string());
                 return Err(CalendarApiError::ApiError(format!(
                     "Failed to list calendars. Status: {}, Error: {}",
-                    status,
-                    error_text
+                    status, error_text
                 )));
             }
 
@@ -3198,26 +3875,30 @@ pub mod calendar_api {
                 .map_err(|e| CalendarApiError::ParseError(e.to_string()))?;
 
             let mut calendars = Vec::new();
-            
+
             if let Some(items) = json_response.get("items").and_then(|v| v.as_array()) {
                 for item in items {
-                    let id = item.get("id")
+                    let id = item
+                        .get("id")
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| CalendarApiError::ParseError("Missing calendar id".to_string()))?
+                        .ok_or_else(|| {
+                            CalendarApiError::ParseError("Missing calendar id".to_string())
+                        })?
                         .to_string();
-                    
-                    let summary = item.get("summary")
+
+                    let summary = item
+                        .get("summary")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Unknown Calendar")
                         .to_string();
-                    
-                    let description = item.get("description")
+
+                    let description = item
+                        .get("description")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
-                    
-                    let primary = item.get("primary")
-                        .and_then(|v| v.as_bool());
-                    
+
+                    let primary = item.get("primary").and_then(|v| v.as_bool());
+
                     calendars.push(CalendarInfo {
                         id,
                         summary,
@@ -3255,32 +3936,32 @@ pub mod calendar_api {
                 .map_err(|e| CalendarApiError::AuthError(e.to_string()))?;
 
             let mut url = format!("{}/calendars/{}/events", CALENDAR_API_BASE_URL, calendar_id);
-            
+
             // Build query parameters
             let mut query_parts = Vec::new();
-            
+
             if let Some(max) = max_results {
                 query_parts.push(format!("maxResults={}", max));
             }
-            
+
             if let Some(min_time) = time_min {
                 query_parts.push(format!("timeMin={}", min_time.to_rfc3339()));
             }
-            
+
             if let Some(max_time) = time_max {
                 query_parts.push(format!("timeMax={}", max_time.to_rfc3339()));
             }
-            
+
             // Add single events mode to expand recurring events
             query_parts.push("singleEvents=true".to_string());
-            
+
             // Order by start time
             query_parts.push("orderBy=startTime".to_string());
-            
+
             if !query_parts.is_empty() {
                 url = format!("{}?{}", url, query_parts.join("&"));
             }
-            
+
             debug!("Listing events from: {}", url);
 
             let response = self
@@ -3299,8 +3980,7 @@ pub mod calendar_api {
                     .unwrap_or_else(|_| "<no response body>".to_string());
                 return Err(CalendarApiError::ApiError(format!(
                     "Failed to list events. Status: {}, Error: {}",
-                    status,
-                    error_text
+                    status, error_text
                 )));
             }
 
@@ -3310,7 +3990,7 @@ pub mod calendar_api {
                 .map_err(|e| CalendarApiError::ParseError(e.to_string()))?;
 
             let mut events = Vec::new();
-            
+
             if let Some(items) = json_response.get("items").and_then(|v| v.as_array()) {
                 for item in items {
                     if let Ok(event) = self.parse_event(item) {
@@ -3344,49 +4024,78 @@ pub mod calendar_api {
 
             // Convert our CalendarEvent to Google Calendar API format
             let mut event_data = serde_json::Map::new();
-            event_data.insert("summary".to_string(), serde_json::Value::String(event.summary));
-            
+            event_data.insert(
+                "summary".to_string(),
+                serde_json::Value::String(event.summary),
+            );
+
             if let Some(desc) = event.description {
                 event_data.insert("description".to_string(), serde_json::Value::String(desc));
             }
-            
+
             if let Some(loc) = event.location {
                 event_data.insert("location".to_string(), serde_json::Value::String(loc));
             }
-            
+
             // Add start time
             let mut start = serde_json::Map::new();
-            start.insert("dateTime".to_string(), serde_json::Value::String(event.start_time.to_rfc3339()));
-            start.insert("timeZone".to_string(), serde_json::Value::String("UTC".to_string()));
+            start.insert(
+                "dateTime".to_string(),
+                serde_json::Value::String(event.start_time.to_rfc3339()),
+            );
+            start.insert(
+                "timeZone".to_string(),
+                serde_json::Value::String("UTC".to_string()),
+            );
             event_data.insert("start".to_string(), serde_json::Value::Object(start));
-            
+
             // Add end time
             let mut end = serde_json::Map::new();
-            end.insert("dateTime".to_string(), serde_json::Value::String(event.end_time.to_rfc3339()));
-            end.insert("timeZone".to_string(), serde_json::Value::String("UTC".to_string()));
+            end.insert(
+                "dateTime".to_string(),
+                serde_json::Value::String(event.end_time.to_rfc3339()),
+            );
+            end.insert(
+                "timeZone".to_string(),
+                serde_json::Value::String("UTC".to_string()),
+            );
             event_data.insert("end".to_string(), serde_json::Value::Object(end));
-            
+
             // Add attendees if any
             if !event.attendees.is_empty() {
-                let attendees = event.attendees.iter().map(|a| {
-                    let mut attendee = serde_json::Map::new();
-                    attendee.insert("email".to_string(), serde_json::Value::String(a.email.clone()));
-                    
-                    if let Some(name) = &a.display_name {
-                        attendee.insert("displayName".to_string(), serde_json::Value::String(name.clone()));
-                    }
-                    
-                    if let Some(status) = &a.response_status {
-                        attendee.insert("responseStatus".to_string(), serde_json::Value::String(status.clone()));
-                    }
-                    
-                    if let Some(optional) = a.optional {
-                        attendee.insert("optional".to_string(), serde_json::Value::Bool(optional));
-                    }
-                    
-                    serde_json::Value::Object(attendee)
-                }).collect::<Vec<_>>();
-                
+                let attendees = event
+                    .attendees
+                    .iter()
+                    .map(|a| {
+                        let mut attendee = serde_json::Map::new();
+                        attendee.insert(
+                            "email".to_string(),
+                            serde_json::Value::String(a.email.clone()),
+                        );
+
+                        if let Some(name) = &a.display_name {
+                            attendee.insert(
+                                "displayName".to_string(),
+                                serde_json::Value::String(name.clone()),
+                            );
+                        }
+
+                        if let Some(status) = &a.response_status {
+                            attendee.insert(
+                                "responseStatus".to_string(),
+                                serde_json::Value::String(status.clone()),
+                            );
+                        }
+
+                        if let Some(optional) = a.optional {
+                            attendee
+                                .insert("optional".to_string(), serde_json::Value::Bool(optional));
+                        }
+
+                        serde_json::Value::Object(attendee)
+                    })
+                    .collect::<Vec<_>>();
+
                 event_data.insert("attendees".to_string(), serde_json::Value::Array(attendees));
             }
 
@@ -3413,8 +4122,7 @@ pub mod calendar_api {
                     .unwrap_or_else(|_| "<no response body>".to_string());
                 return Err(CalendarApiError::ApiError(format!(
                     "Failed to create event. Status: {}, Error: {}",
-                    status,
-                    error_text
+                    status, error_text
                 )));
             }
 
@@ -3458,8 +4166,7 @@ pub mod calendar_api {
                     .unwrap_or_else(|_| "<no response body>".to_string());
                 return Err(CalendarApiError::ApiError(format!(
                     "Failed to get event. Status: {}, Error: {}",
-                    status,
-                    error_text
+                    status, error_text
                 )));
             }
 
@@ -3473,63 +4180,73 @@ pub mod calendar_api {
 
         // Helper to parse Google Calendar event format into our CalendarEvent struct
         fn parse_event(&self, item: &serde_json::Value) -> Result<CalendarEvent> {
-            let id = item.get("id")
+            let id = item
+                .get("id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            
-            let summary = item.get("summary")
+
+            let summary = item
+                .get("summary")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CalendarApiError::ParseError("Missing event summary".to_string()))?
                 .to_string();
-            
-            let description = item.get("description")
+
+            let description = item
+                .get("description")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            
-            let location = item.get("location")
+
+            let location = item
+                .get("location")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            
+
             // Parse datetime structures
-            let start_time = item.get("start")
+            let start_time = item
+                .get("start")
                 .and_then(|v| v.get("dateTime"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CalendarApiError::ParseError("Missing start time".to_string()))?;
-            
-            let end_time = item.get("end")
+
+            let end_time = item
+                .get("end")
                 .and_then(|v| v.get("dateTime"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CalendarApiError::ParseError("Missing end time".to_string()))?;
-            
+
             // Parse RFC3339 format to DateTime<Utc>
             let start_dt = DateTime::parse_from_rfc3339(start_time)
                 .map_err(|e| CalendarApiError::ParseError(format!("Invalid start time: {}", e)))?
                 .with_timezone(&Utc);
-            
+
             let end_dt = DateTime::parse_from_rfc3339(end_time)
                 .map_err(|e| CalendarApiError::ParseError(format!("Invalid end time: {}", e)))?
                 .with_timezone(&Utc);
-            
+
             // Parse attendees
             let mut attendees = Vec::new();
             if let Some(attendee_list) = item.get("attendees").and_then(|v| v.as_array()) {
                 for attendee in attendee_list {
-                    let email = attendee.get("email")
+                    let email = attendee
+                        .get("email")
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| CalendarApiError::ParseError("Missing attendee email".to_string()))?
+                        .ok_or_else(|| {
+                            CalendarApiError::ParseError("Missing attendee email".to_string())
+                        })?
                         .to_string();
-                    
-                    let display_name = attendee.get("displayName")
+
+                    let display_name = attendee
+                        .get("displayName")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
-                    
-                    let response_status = attendee.get("responseStatus")
+
+                    let response_status = attendee
+                        .get("responseStatus")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
-                    
-                    let optional = attendee.get("optional")
-                        .and_then(|v| v.as_bool());
-                    
+
+                    let optional = attendee.get("optional").and_then(|v| v.as_bool());
+
                     attendees.push(Attendee {
                         email,
                         display_name,
@@ -3538,37 +4255,45 @@ pub mod calendar_api {
                     });
                 }
             }
-            
+
             // Parse conference data
             let conference_data = if let Some(conf_data) = item.get("conferenceData") {
                 let mut entry_points = Vec::new();
-                
-                if let Some(entry_point_list) = conf_data.get("entryPoints").and_then(|v| v.as_array()) {
+
+                if let Some(entry_point_list) =
+                    conf_data.get("entryPoints").and_then(|v| v.as_array())
+                {
                     for entry_point in entry_point_list {
                         if let (Some(entry_type), Some(uri)) = (
                             entry_point.get("entryPointType").and_then(|v| v.as_str()),
-                            entry_point.get("uri").and_then(|v| v.as_str())
+                            entry_point.get("uri").and_then(|v| v.as_str()),
                         ) {
                             entry_points.push(EntryPoint {
                                 entry_point_type: entry_type.to_string(),
                                 uri: uri.to_string(),
-                                label: entry_point.get("label").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                                label: entry_point
+                                    .get("label")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string()),
                             });
                         }
                     }
                 }
-                
+
                 let conference_solution = conf_data.get("conferenceSolution").and_then(|sol| {
                     if let Some(name) = sol.get("name").and_then(|v| v.as_str()) {
                         Some(ConferenceSolution {
                             name: name.to_string(),
-                            key: sol.get("key").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            key: sol
+                                .get("key")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
                         })
                     } else {
                         None
                     }
                 });
-                
+
                 if !entry_points.is_empty() || conference_solution.is_some() {
                     Some(ConferenceData {
                         conference_solution,
@@ -3580,38 +4305,45 @@ pub mod calendar_api {
             } else {
                 None
             };
-            
+
             // Parse html link
-            let html_link = item.get("htmlLink")
+            let html_link = item
+                .get("htmlLink")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            
+
             // Parse creator
             let creator = item.get("creator").and_then(|c| {
                 if let Some(email) = c.get("email").and_then(|v| v.as_str()) {
                     Some(EventOrganizer {
                         email: email.to_string(),
-                        display_name: c.get("displayName").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        display_name: c
+                            .get("displayName")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                         self_: c.get("self").and_then(|v| v.as_bool()),
                     })
                 } else {
                     None
                 }
             });
-            
+
             // Parse organizer
             let organizer = item.get("organizer").and_then(|o| {
                 if let Some(email) = o.get("email").and_then(|v| v.as_str()) {
                     Some(EventOrganizer {
                         email: email.to_string(),
-                        display_name: o.get("displayName").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        display_name: o
+                            .get("displayName")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                         self_: o.get("self").and_then(|v| v.as_bool()),
                     })
                 } else {
                     None
                 }
             });
-            
+
             Ok(CalendarEvent {
                 id,
                 summary,

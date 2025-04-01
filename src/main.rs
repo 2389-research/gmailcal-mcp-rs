@@ -43,9 +43,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     // Check if we're in a read-only environment
-    let is_read_only = std::env::var("CLAUDE_DESKTOP").is_ok() || 
-                       std::env::var("CLAUDE_AI").is_ok() || 
-                       cli.memory_only;
+    let is_read_only = std::env::var("CLAUDE_DESKTOP").is_ok()
+        || std::env::var("CLAUDE_AI").is_ok()
+        || cli.memory_only;
     if is_read_only {
         // Set a marker environment variable for read-only mode
         env::set_var("MCP_READ_ONLY", "1");

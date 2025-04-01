@@ -16,6 +16,9 @@ The MCP Server is built on Rust, providing a robust and efficient interface to t
 - Retrieving calendar events 🗓️
 - Getting details of specific calendar events 🎯
 - Creating new calendar events 📝
+- Listing contacts from Google Contacts 👤
+- Searching for contacts by name, email, or other attributes 🔎
+- Getting detailed information about specific contacts 📇
 
 This server enhances Claude's email and calendar management capabilities with specialized prompts for email analysis, summarization, task extraction, meeting detection, contact extraction, prioritization, and more.
 
@@ -37,6 +40,7 @@ To obtain a refresh token:
   - For Gmail: `https://mail.google.com/`
   - For Calendar (read-only): `https://www.googleapis.com/auth/calendar.readonly`
   - For Calendar (read/write): `https://www.googleapis.com/auth/calendar`
+  - For Contacts: `https://www.googleapis.com/auth/contacts.readonly`
 - You can either:
   - Run the included auth flow using `cargo run -- auth` which will request all required scopes
   - Utilize the [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground/) for token generation
@@ -95,6 +99,13 @@ You can directly use tools through commands like:
 /tool create_event summary="Team Meeting" description="Weekly sync" location="Conference Room A" start_time="2024-04-10T14:00:00Z" end_time="2024-04-10T15:00:00Z" attendees=["person1@example.com", "person2@example.com"]
 ```
 
+#### Contact Commands
+```
+/tool list_contacts max_results=10
+/tool search_contacts query="John" max_results=5
+/tool get_contact resource_name="people/c12345678901234567"
+```
+
 Or through natural language requests:
 
 #### Email Requests
@@ -115,6 +126,13 @@ Or through natural language requests:
 - "Create a new meeting titled 'Project Review' for tomorrow at 2pm with team@example.com"
 - "What events do I have scheduled between April 1 and April 15?"
 - "Schedule a doctor's appointment for next Monday at 10am"
+
+#### Contact Requests
+- "List my contacts"
+- "Find contacts named Smith"
+- "Search for contacts at example.com"
+- "Show me details for contact with ID people/c12345678901234567"
+- "Find contact information for John Doe"
 
 ## 📝 Advanced Email Analysis
 
@@ -167,6 +185,21 @@ The Calendar API uses the same OAuth credentials as the Gmail API, but requires 
 
 You can modify your OAuth consent screen to include these scopes when setting up your Google Cloud project.
 
+## 👤 Contact Management
+
+The Google People API integration provides tools to access and search your contacts:
+
+### Contact Features
+- **List Contacts**: View all contacts in your Google Contacts with optional limit
+- **Search Contacts**: Find contacts by name, email, organization or other attributes
+- **Get Contact Details**: Retrieve complete information about a specific contact including name, emails, phone numbers, and organizations
+
+### Contact Permissions
+The People API uses the same OAuth credentials as the Gmail API, but requires the following additional scope:
+- `https://www.googleapis.com/auth/contacts.readonly` (for reading contact information)
+
+This scope gives read-only access to your contacts, allowing the MCP server to retrieve contact information without modifying your contact list.
+
 ### Project Structure
 ```
 src/
@@ -175,6 +208,7 @@ src/
   ├── config.rs       # Configuration handling
   ├── gmail_api.rs    # Gmail API client implementation
   ├── calendar_api.rs # Google Calendar API client implementation
+  ├── people_api.rs   # Google People API client implementation (contacts)
   ├── logging.rs      # Logging setup
   ├── server.rs       # MCP server implementation
   └── prompts.rs      # Email analysis prompts
