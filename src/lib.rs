@@ -3644,7 +3644,7 @@ pub mod auth {
 
         Ok(())
     }
-    
+
     // Generate the Claude Desktop configuration file
     fn generate_claude_desktop_config(
         client_id: &str,
@@ -3653,11 +3653,11 @@ pub mod auth {
         access_token: &str,
     ) -> Result<(), String> {
         use serde_json::{json, to_string_pretty};
-        
+
         // Determine the executable path
         let current_exe = std::env::current_exe()
             .map_err(|e| format!("Failed to get current executable path: {}", e))?;
-        
+
         // Get the target/release version of the path if possible
         let mut command_path = current_exe.to_string_lossy().to_string();
         if let Some(debug_index) = command_path.find("target/debug") {
@@ -3667,7 +3667,7 @@ pub mod auth {
                 &command_path[0..debug_index]
             );
         }
-        
+
         // Create the config JSON
         let config = json!({
             "mcpServers": {
@@ -3683,18 +3683,18 @@ pub mod auth {
                 }
             }
         });
-        
+
         // Convert to pretty JSON
-        let json_string = to_string_pretty(&config)
-            .map_err(|e| format!("Failed to serialize config: {}", e))?;
-            
+        let json_string =
+            to_string_pretty(&config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+
         // Write to file
         let config_path = "claude_desktop_config.json";
         std::fs::write(config_path, json_string)
             .map_err(|e| format!("Failed to write config file: {}", e))?;
-            
+
         println!("Claude Desktop config saved to {}", config_path);
-        
+
         Ok(())
     }
 
