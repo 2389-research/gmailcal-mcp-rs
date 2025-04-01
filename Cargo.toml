@@ -24,3 +24,7 @@ url = "2.5"
 webbrowser = "0.8"
 rand = "0.8"
 base64 = "0.13"
+uuid = { version = "1.7", features = ["v4"] }
+
+[dev-dependencies]
+mockall = "0.11.4"
