@@ -2580,8 +2580,10 @@ pub mod auth {
     use tokio::sync::Mutex;
     use url::Url;
 
-    // OAuth scopes needed for Gmail access
+    // OAuth scopes needed for Gmail and Calendar access
     const GMAIL_SCOPE: &str = "https://mail.google.com/";
+    const CALENDAR_READ_SCOPE: &str = "https://www.googleapis.com/auth/calendar.readonly";
+    const CALENDAR_WRITE_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
     const OAUTH_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/auth";
     const OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
@@ -2672,12 +2674,16 @@ pub mod auth {
             complete: false,
         }));
 
-        // Build the authorization URL
+        // Build the authorization URL with both Gmail and Calendar scopes
         let auth_url = build_auth_url(
             &client_id,
             &redirect_uri,
             &state_token,
-            &[GMAIL_SCOPE.to_string()],
+            &[
+                GMAIL_SCOPE.to_string(),
+                CALENDAR_READ_SCOPE.to_string(),
+                CALENDAR_WRITE_SCOPE.to_string(),
+            ],
         )?;
 
         // Start the local web server to handle the OAuth callback

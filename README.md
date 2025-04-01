@@ -33,8 +33,13 @@ To utilize the Gmail MCP Server, follow these steps:
 ### 2. Get a Refresh Token
 To obtain a refresh token:
 - Use the OAuth 2.0 authorization flow.
-- Request access to the necessary Gmail API scopes.
-- You can utilize the [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground/) for token generation.
+- Request access to the necessary API scopes:
+  - For Gmail: `https://mail.google.com/`
+  - For Calendar (read-only): `https://www.googleapis.com/auth/calendar.readonly`
+  - For Calendar (read/write): `https://www.googleapis.com/auth/calendar`
+- You can either:
+  - Run the included auth flow using `cargo run -- auth` which will request all required scopes
+  - Utilize the [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground/) for token generation
 
 ### 3. Configure Environment Variables
 In the same directory as the executable, create a `.env` file with:
