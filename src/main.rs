@@ -12,6 +12,10 @@ use std::env;
 struct Cli {
     #[clap(subcommand)]
     command: Option<Commands>,
+
+    /// Force use of stderr-only logging (no file logging)
+    #[clap(long, short, action)]
+    memory_only: bool,
 }
 
 #[derive(Subcommand)]
@@ -37,6 +41,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse command line arguments
     let cli = Cli::parse();
+
+    // Check if we're in a read-only environment
+    let is_read_only = std::env::var("CLAUDE_DESKTOP").is_ok() || cli.memory_only;
+    if is_read_only {
+        // Set a marker environment variable for read-only mode
+        env::set_var("MCP_READ_ONLY", "1");
+    }
 
     // Determine which command to run
     match cli.command {
@@ -68,8 +79,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Initialize logging with maximum verbosity
-    let log_file = setup_logging(LevelFilter::Trace, None)?;
+    // Special handling for read-only environments
+    let log_file = if is_read_only {
+        env_logger::builder()
+            .filter_level(LevelFilter::Debug)
+            .init();
+        info!("Using in-memory logging (stderr) in read-only environment");
+        String::from("stderr-only (read-only environment)")
+    } else {
+        // Initialize logging with file output
+        setup_logging(LevelFilter::Trace, None)?
+    };
 
     info!("Gmail MCP Server starting...");
     info!("Logs will be saved to {}", log_file);
