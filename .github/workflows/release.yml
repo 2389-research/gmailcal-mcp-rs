@@ -1,154 +1,142 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (without v prefix)'
-        required: false
-        type: string
+    push:
+        tags:
+            - "v*"
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to release (without v prefix)"
+                required: false
+                type: string
 
 # Essential permissions for GitHub releases
 permissions:
-  contents: write
+    contents: write
 
 env:
-  BINARY_NAME: mcp-gmailcal
+    BINARY_NAME: mcp-gmailcal
 
 jobs:
-  release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ env.VERSION }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      
-      # Get version number from tag or input
-      - name: Set version (from tag)
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
-      
-      - name: Set version (from input)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
-        run: echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-      
-      - name: Set version (from Cargo.toml)
-        if: env.VERSION == ''
-        run: |
-          VERSION=$(grep -m1 'version =' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/g')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-      
-      - name: Show version
-        run: echo "Building release for version ${{ env.VERSION }}"
-      
-      # Create GitHub Release
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: Release ${{ env.VERSION }}
-          tag_name: v${{ env.VERSION }}
-          draft: false
-          generate_release_notes: true
-          token: ${{ github.token }}
-  
-  # Matrix build for multiple platforms
-  build:
-    name: Build for ${{ matrix.platform }}
-    needs: release
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: Linux
-            target: x86_64-unknown-linux-gnu
-            binary_path: target/release/mcp-gmailcal
-            asset_name: mcp-gmailcal-linux-x86_64.tar.gz
-            
-          - os: macos-latest
-            platform: macOS Intel
-            target: x86_64-apple-darwin
-            binary_path: target/release/mcp-gmailcal
-            asset_name: mcp-gmailcal-macos-x86_64.tar.gz
-            
-          - os: macos-latest
-            platform: macOS Universal Binary
-            target: universal-apple-darwin
-            binary_path: target/universal-apple-darwin/release/mcp-gmailcal
-            asset_name: mcp-gmailcal-macos-universal.tar.gz
-            use_universal: true
-            
-          - os: windows-latest
-            platform: Windows
-            target: x86_64-pc-windows-msvc
-            binary_path: target/release/mcp-gmailcal.exe
-            asset_name: mcp-gmailcal-windows-x86_64.zip
+    release:
+        name: Create Release
+        runs-on: ubuntu-latest
+        outputs:
+            version: ${{ env.VERSION }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.use_universal == true && 'x86_64-apple-darwin,aarch64-apple-darwin' || matrix.target }}
-      
-      # Standard build for most platforms
-      - name: Build (standard)
-        if: matrix.use_universal != true
-        run: cargo build --release --target ${{ matrix.target }}
-      
-      # Create a universal macOS binary (Intel + Apple Silicon)
-      - name: Build macOS Universal Binary
-        if: matrix.use_universal == true
-        run: |
-          # Build for Intel
-          cargo build --release --target x86_64-apple-darwin
-          
-          # Build for Apple Silicon
-          cargo build --release --target aarch64-apple-darwin
-          
-          # Create output directory
-          mkdir -p target/universal-apple-darwin/release
-          
-          # Create universal binary using lipo
-          lipo -create -output target/universal-apple-darwin/release/mcp-gmailcal \
-            target/x86_64-apple-darwin/release/mcp-gmailcal \
-            target/aarch64-apple-darwin/release/mcp-gmailcal
-      
-      - name: Strip binary (Unix)
-        if: runner.os != 'Windows'
-        run: strip ${{ matrix.binary_path }}
-        continue-on-error: true
-      
-      # Package assets based on platform
-      - name: Package for Unix
-        if: runner.os != 'Windows'
-        run: |
-          mkdir -p dist
-          cp ${{ matrix.binary_path }} dist/${{ env.BINARY_NAME }}
-          cd dist && tar -czf ${{ matrix.asset_name }} ${{ env.BINARY_NAME }}
-      
-      - name: Package for Windows
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          mkdir -p dist
-          cp ${{ matrix.binary_path }} dist/
-          cd dist && 7z a -tzip ${{ matrix.asset_name }} ${{ env.BINARY_NAME }}.exe
-      
-      # Upload to GitHub Release
-      - name: Upload assets
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/${{ matrix.asset_name }}
-          tag_name: ${{ github.ref_name }}
-          token: ${{ github.token }}
+            # Get version number from tag or input
+            - name: Set version (from tag)
+              if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+              run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+            - name: Set version (from input)
+              if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
+              run: echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+
+            - name: Set version (from Cargo.toml)
+              if: env.VERSION == ''
+              run: |
+                  VERSION=$(grep -m1 'version =' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/g')
+                  echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+            - name: Show version
+              run: echo "Building release for version ${{ env.VERSION }}"
+
+            # Create GitHub Release
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  name: Release ${{ env.VERSION }}
+                  tag_name: v${{ env.VERSION }}
+                  draft: false
+                  generate_release_notes: true
+                  token: ${{ github.token }}
+
+    # Matrix build for multiple platforms
+    build:
+        name: Build for ${{ matrix.platform }}
+        needs: release
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: macos-latest
+                      platform: macOS Universal Binary
+                      target: universal-apple-darwin
+                      binary_path: target/universal-apple-darwin/release/mcp-gmailcal
+                      asset_name: mcp-gmailcal-macos-universal.tar.gz
+                      use_universal: true
+
+                    # - os: windows-latest
+                    #   platform: Windows
+                    #   target: x86_64-pc-windows-msvc
+                    #   binary_path: target/release/mcp-gmailcal.exe
+                    #   asset_name: mcp-gmailcal-windows-x86_64.zip
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.use_universal == true && 'x86_64-apple-darwin,aarch64-apple-darwin' || matrix.target }}
+
+            # Standard build for most platforms
+            - name: Build (standard)
+              if: matrix.use_universal != true
+              run: cargo build --release --target ${{ matrix.target }}
+
+            # Create a universal macOS binary (Intel + Apple Silicon)
+            - name: Build macOS Universal Binary
+              if: matrix.use_universal == true
+              run: |
+                  # Build for Intel
+                  cargo build --release --target x86_64-apple-darwin
+
+                  # Build for Apple Silicon
+                  cargo build --release --target aarch64-apple-darwin
+
+                  # Create output directory
+                  mkdir -p target/universal-apple-darwin/release
+
+                  # Create universal binary using lipo
+                  lipo -create -output target/universal-apple-darwin/release/mcp-gmailcal \
+                    target/x86_64-apple-darwin/release/mcp-gmailcal \
+                    target/aarch64-apple-darwin/release/mcp-gmailcal
+
+            - name: Strip binary (Unix)
+              if: runner.os != 'Windows'
+              run: strip ${{ matrix.binary_path }}
+              continue-on-error: true
+
+            # Package assets based on platform
+            - name: Package for Unix
+              if: runner.os != 'Windows'
+              run: |
+                  mkdir -p dist
+                  cp ${{ matrix.binary_path }} dist/${{ env.BINARY_NAME }}
+                  cd dist && tar -czf ${{ matrix.asset_name }} ${{ env.BINARY_NAME }}
+
+            - name: Package for Windows
+              if: runner.os == 'Windows'
+              shell: bash
+              run: |
+                  mkdir -p dist
+                  cp ${{ matrix.binary_path }} dist/
+                  cd dist && 7z a -tzip ${{ matrix.asset_name }} ${{ env.BINARY_NAME }}.exe
+
+            # Upload to GitHub Release
+            - name: Upload assets
+              uses: softprops/action-gh-release@v1
+              with:
+                  files: dist/${{ matrix.asset_name }}
+                  tag_name: ${{ github.ref_name }}
+                  token: ${{ github.token }}
