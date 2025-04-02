@@ -4329,17 +4329,15 @@ pub mod calendar_api {
                 }
 
                 let conference_solution = conf_data.get("conferenceSolution").and_then(|sol| {
-                    if let Some(name) = sol.get("name").and_then(|v| v.as_str()) {
-                        Some(ConferenceSolution {
+                    sol.get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|name| ConferenceSolution {
                             name: name.to_string(),
                             key: sol
                                 .get("key")
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string()),
                         })
-                    } else {
-                        None
-                    }
                 });
 
                 if !entry_points.is_empty() || conference_solution.is_some() {
@@ -4362,8 +4360,9 @@ pub mod calendar_api {
 
             // Parse creator
             let creator = item.get("creator").and_then(|c| {
-                if let Some(email) = c.get("email").and_then(|v| v.as_str()) {
-                    Some(EventOrganizer {
+                c.get("email")
+                    .and_then(|v| v.as_str())
+                    .map(|email| EventOrganizer {
                         email: email.to_string(),
                         display_name: c
                             .get("displayName")
@@ -4371,15 +4370,13 @@ pub mod calendar_api {
                             .map(|s| s.to_string()),
                         self_: c.get("self").and_then(|v| v.as_bool()),
                     })
-                } else {
-                    None
-                }
             });
 
             // Parse organizer
             let organizer = item.get("organizer").and_then(|o| {
-                if let Some(email) = o.get("email").and_then(|v| v.as_str()) {
-                    Some(EventOrganizer {
+                o.get("email")
+                    .and_then(|v| v.as_str())
+                    .map(|email| EventOrganizer {
                         email: email.to_string(),
                         display_name: o
                             .get("displayName")
@@ -4387,9 +4384,6 @@ pub mod calendar_api {
                             .map(|s| s.to_string()),
                         self_: o.get("self").and_then(|v| v.as_bool()),
                     })
-                } else {
-                    None
-                }
             });
 
             Ok(CalendarEvent {
