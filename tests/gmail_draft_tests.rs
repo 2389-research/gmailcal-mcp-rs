@@ -14,7 +14,7 @@ mod draft_email_tests {
     fn test_draft_creation() {
         // Create a simple draft email
         let draft = DraftEmail {
-            to: vec!["recipient@example.com".to_string()],
+            to: "recipient@example.com".to_string(),
             subject: "Test Subject".to_string(),
             body: "This is a test email body".to_string(),
             cc: None,
@@ -25,7 +25,7 @@ mod draft_email_tests {
         };
 
         // Verify all fields were set correctly
-        assert_eq!(draft.to, vec!["recipient@example.com".to_string()]);
+        assert_eq!(draft.to, "recipient@example.com".to_string());
         assert_eq!(draft.subject, "Test Subject");
         assert_eq!(draft.body, "This is a test email body");
         assert!(draft.cc.is_none());
@@ -36,19 +36,19 @@ mod draft_email_tests {
 
         // Test with optional fields
         let draft_with_options = DraftEmail {
-            to: vec!["recipient@example.com".to_string()],
+            to: "recipient@example.com".to_string(),
             subject: "Test Subject".to_string(),
             body: "This is a test email body".to_string(),
-            cc: Some(vec!["cc@example.com".to_string()]),
-            bcc: Some(vec!["bcc@example.com".to_string()]),
+            cc: Some("cc@example.com".to_string()),
+            bcc: Some("bcc@example.com".to_string()),
             thread_id: Some("thread123".to_string()),
             in_reply_to: Some("message123".to_string()),
             references: Some("ref123".to_string()),
         };
 
         // Verify optional fields
-        assert_eq!(draft_with_options.cc.unwrap(), vec!["cc@example.com".to_string()]);
-        assert_eq!(draft_with_options.bcc.unwrap(), vec!["bcc@example.com".to_string()]);
+        assert_eq!(draft_with_options.cc.unwrap(), "cc@example.com".to_string());
+        assert_eq!(draft_with_options.bcc.unwrap(), "bcc@example.com".to_string());
         assert_eq!(draft_with_options.thread_id.unwrap(), "thread123");
         assert_eq!(draft_with_options.in_reply_to.unwrap(), "message123");
         assert_eq!(draft_with_options.references.unwrap(), "ref123");
@@ -58,11 +58,11 @@ mod draft_email_tests {
     fn test_draft_to_api_format() {
         // Create a draft email
         let draft = DraftEmail {
-            to: vec!["recipient@example.com".to_string()],
+            to: "recipient@example.com".to_string(),
             subject: "Test Subject".to_string(),
             body: "This is a test email body".to_string(),
-            cc: Some(vec!["cc@example.com".to_string()]),
-            bcc: Some(vec!["bcc@example.com".to_string()]),
+            cc: Some("cc@example.com".to_string()),
+            bcc: Some("bcc@example.com".to_string()),
             thread_id: None,
             in_reply_to: None,
             references: None,
@@ -93,9 +93,9 @@ mod draft_email_tests {
              Content-Type: text/plain; charset=UTF-8\r\n\
              \r\n\
              {}",
-            draft.to.join(", "),
-            draft.cc.as_ref().map_or("", |cc| cc.join(", ").as_str()),
-            draft.bcc.as_ref().map_or("", |bcc| bcc.join(", ").as_str()),
+            draft.to,
+            draft.cc.as_ref().map_or("", |cc| cc.as_str()),
+            draft.bcc.as_ref().map_or("", |bcc| bcc.as_str()),
             draft.subject,
             draft.body
         );
@@ -107,7 +107,7 @@ mod draft_email_tests {
     fn test_draft_validation() {
         // Test with empty recipients
         let invalid_draft = DraftEmail {
-            to: vec![],
+            to: "".to_string(),
             subject: "Test".to_string(),
             body: "Body".to_string(),
             cc: None,
@@ -120,13 +120,13 @@ mod draft_email_tests {
         // Validation function to test invalid drafts
         fn validate_draft(draft: &DraftEmail) -> Result<(), GmailApiError> {
             if draft.to.is_empty() {
-                return Err(GmailApiError::DraftValidationError(
+                return Err(GmailApiError::MessageFormatError(
                     "At least one recipient is required".to_string(),
                 ));
             }
 
             if draft.subject.is_empty() {
-                return Err(GmailApiError::DraftValidationError(
+                return Err(GmailApiError::MessageFormatError(
                     "Subject cannot be empty".to_string(),
                 ));
             }
@@ -138,15 +138,15 @@ mod draft_email_tests {
         let validation_result = validate_draft(&invalid_draft);
         assert!(validation_result.is_err());
         
-        if let Err(GmailApiError::DraftValidationError(message)) = validation_result {
+        if let Err(GmailApiError::MessageFormatError(message)) = validation_result {
             assert_eq!(message, "At least one recipient is required");
         } else {
-            panic!("Expected DraftValidationError");
+            panic!("Expected MessageFormatError");
         }
 
         // Test empty subject validation
         let invalid_subject = DraftEmail {
-            to: vec!["test@example.com".to_string()],
+            to: "test@example.com".to_string(),
             subject: "".to_string(),
             body: "Body".to_string(),
             cc: None,
@@ -159,15 +159,15 @@ mod draft_email_tests {
         let validation_result = validate_draft(&invalid_subject);
         assert!(validation_result.is_err());
         
-        if let Err(GmailApiError::DraftValidationError(message)) = validation_result {
+        if let Err(GmailApiError::MessageFormatError(message)) = validation_result {
             assert_eq!(message, "Subject cannot be empty");
         } else {
-            panic!("Expected DraftValidationError");
+            panic!("Expected MessageFormatError");
         }
 
         // Test valid draft
         let valid_draft = DraftEmail {
-            to: vec!["test@example.com".to_string()],
+            to: "test@example.com".to_string(),
             subject: "Test".to_string(),
             body: "Body".to_string(),
             cc: None,

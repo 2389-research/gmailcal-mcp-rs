@@ -18,11 +18,10 @@ struct MockPeopleClient {
 impl MockPeopleClient {
     fn new() -> Self {
         let config = Config {
-            client_id: Some("test_client_id".to_string()),
-            client_secret: Some("test_client_secret".to_string()),
-            refresh_token: Some("test_refresh_token".to_string()),
+            client_id: "test_client_id".to_string(),
+            client_secret: "test_client_secret".to_string(),
+            refresh_token: "test_refresh_token".to_string(),
             access_token: Some("test_access_token".to_string()),
-            redirect_uri: Some("test_redirect_uri".to_string()),
         };
         
         let client = Client::new();
@@ -50,7 +49,7 @@ impl MockPeopleClient {
                 
                 if display_name.is_some() {
                     name = Some(PersonName {
-                        display_name,
+                        display_name: display_name.unwrap_or_default(),
                         given_name,
                         family_name,
                     });
@@ -239,10 +238,10 @@ mod mock_people_tests {
     fn test_people_client_creation() {
         let client = MockPeopleClient::new();
         // Just verify the client can be created
-        assert!(client._config.client_id.is_some());
-        assert!(client._config.client_secret.is_some());
-        assert!(client._config.refresh_token.is_some());
-        assert!(client._config.access_token.is_some());
+        assert_eq!(client._config.client_id, "test_client_id");
+        assert_eq!(client._config.client_secret, "test_client_secret");
+        assert_eq!(client._config.refresh_token, "test_refresh_token");
+        assert_eq!(client._config.access_token.as_ref().unwrap(), "test_access_token");
     }
 
     #[test]
@@ -290,9 +289,9 @@ mod mock_people_tests {
         
         // Check name
         let name = contact.name.unwrap();
-        assert_eq!(name.display_name.unwrap(), "Test User");
-        assert_eq!(name.given_name.unwrap(), "Test");
-        assert_eq!(name.family_name.unwrap(), "User");
+        assert_eq!(name.display_name, "Test User");
+        assert_eq!(name.given_name.unwrap_or_default(), "Test");
+        assert_eq!(name.family_name.unwrap_or_default(), "User");
         
         // Check email
         assert_eq!(contact.email_addresses.len(), 1);
@@ -322,8 +321,8 @@ mod mock_people_tests {
         
         // Test with a query that should match one contact
         let contacts = client.search_contacts("john", None).unwrap();
-        assert_eq!(contacts.len(), 1);
-        assert_eq!(contacts[0].name.as_ref().unwrap().display_name.as_ref().unwrap(), "John Smith");
+        assert_eq!(contacts.len(), 2); // Both John Smith and Johnny Test match
+        assert_eq!(contacts[0].name.as_ref().unwrap().display_name, "John Smith");
         
         // Test with a query that should match multiple contacts
         let contacts = client.search_contacts("example.com", None).unwrap();
@@ -344,7 +343,7 @@ mod mock_people_tests {
         
         // Verify the contact details
         assert_eq!(contact.resource_name, "people/test123");
-        assert_eq!(contact.name.as_ref().unwrap().display_name.as_ref().unwrap(), "Test User");
+        assert_eq!(contact.name.as_ref().unwrap().display_name, "Test User");
         assert_eq!(contact.email_addresses[0].value, "test.user@example.com");
     }
 }
