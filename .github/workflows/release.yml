@@ -80,10 +80,11 @@ jobs:
             asset_name: mcp-gmailcal-macos-x86_64.tar.gz
             
           - os: macos-latest
-            platform: macOS Apple Silicon
-            target: aarch64-apple-darwin
-            binary_path: target/aarch64-apple-darwin/release/mcp-gmailcal
-            asset_name: mcp-gmailcal-macos-arm64.tar.gz
+            platform: macOS Universal Binary
+            target: universal-apple-darwin
+            binary_path: target/universal-apple-darwin/release/mcp-gmailcal
+            asset_name: mcp-gmailcal-macos-universal.tar.gz
+            use_universal: true
             
           - os: windows-latest
             platform: Windows
@@ -98,10 +99,30 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.use_universal == true && 'x86_64-apple-darwin,aarch64-apple-darwin' || matrix.target }}
       
-      - name: Build for ${{ matrix.platform }}
+      # Standard build for most platforms
+      - name: Build (standard)
+        if: matrix.use_universal != true
         run: cargo build --release --target ${{ matrix.target }}
+      
+      # Create a universal macOS binary (Intel + Apple Silicon)
+      - name: Build macOS Universal Binary
+        if: matrix.use_universal == true
+        run: |
+          # Build for Intel
+          cargo build --release --target x86_64-apple-darwin
+          
+          # Build for Apple Silicon
+          cargo build --release --target aarch64-apple-darwin
+          
+          # Create output directory
+          mkdir -p target/universal-apple-darwin/release
+          
+          # Create universal binary using lipo
+          lipo -create -output target/universal-apple-darwin/release/mcp-gmailcal \
+            target/x86_64-apple-darwin/release/mcp-gmailcal \
+            target/aarch64-apple-darwin/release/mcp-gmailcal
       
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
