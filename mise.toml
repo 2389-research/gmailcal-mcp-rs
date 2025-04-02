@@ -13,6 +13,7 @@ IGNORE_PATTERNS=(
   "**/package-lock.json"
   "**/.env"
   "**/Cargo.lock"
+  "**/.notes"
   "**/node_modules"
   "**/target"
   "**/dist"
