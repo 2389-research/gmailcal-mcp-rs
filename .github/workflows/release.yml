@@ -18,10 +18,17 @@ env:
   RUST_BACKTRACE: 1
   BINARY_NAME: mcp-gmailcal
 
+# Permissions required for creating and uploading releases
+permissions:
+  contents: write
+  discussions: write
+
 jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.VERSION }}
@@ -90,13 +97,14 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
 
   build:
     needs: create-release
     name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -186,5 +194,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: dist/${{ matrix.asset_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: v${{ needs.create-release.outputs.version }}
+          token: ${{ github.token }}
