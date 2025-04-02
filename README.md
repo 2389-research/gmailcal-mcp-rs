@@ -227,3 +227,45 @@ test_mcp_server/      # Test utilities for the MCP server
 Make sure to handle sensitive information with care as some files may contain credentials or tokens. Always refer to the official Gmail API documentation for the latest updates and practices.
 
 Thank you for your interest in the Gmail MCP Server! If you have any questions or feedback, feel free to reach out or contribute to the repository! Happy coding! 🎉
+
+## 🚀 Release Process
+
+To create a new release:
+
+1. Use the included script to bump the version:
+
+```bash
+# View current version
+./trigger-release.sh version
+
+# Bump patch version (0.1.0 -> 0.1.1)
+./trigger-release.sh bump-patch
+
+# Bump minor version (0.1.0 -> 0.2.0)
+./trigger-release.sh bump-minor
+
+# Bump major version (0.1.0 -> 1.0.0)
+./trigger-release.sh bump-major
+
+# Or set a specific version
+./trigger-release.sh set-version 1.2.3
+```
+
+2. Commit the version change:
+
+```bash
+git add Cargo.toml
+git commit -m "Bump version to X.Y.Z"
+git push
+```
+
+3. Create and push a new tag to trigger the release workflow:
+
+```bash
+./trigger-release.sh tag-current
+```
+
+4. The GitHub Actions workflow will automatically:
+   - Create a GitHub release
+   - Build binaries for Windows, Linux, and macOS (Intel & Apple Silicon)
+   - Attach binaries to the release

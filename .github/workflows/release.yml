@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  # Allow manual triggering (useful for debugging)
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (without v prefix)'
+        required: true
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,16 +27,65 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       
-      - name: Get version
-        id: get_version
+      - name: Get version from tag
+        id: get_version_tag
+        if: github.event_name == 'push'
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Get version from input
+        id: get_version_input
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+      
+      - name: Get version from Cargo.toml
+        id: get_version_cargo
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version == ''
+        run: |
+          VERSION=$(grep -m1 'version =' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/g')
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Set version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" == "push" ]; then
+            VERSION="${{ steps.get_version_tag.outputs.VERSION }}"
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ steps.get_version_input.outputs.VERSION }}"
+          else
+            VERSION="${{ steps.get_version_cargo.outputs.VERSION }}"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Using version: $VERSION"
+      
+      - name: Check tag exists
+        id: check_tag
+        run: |
+          if git tag -l "v${{ steps.get_version.outputs.VERSION }}" | grep -q "v${{ steps.get_version.outputs.VERSION }}"; then
+            echo "TAG_EXISTS=true" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.get_version.outputs.VERSION }} already exists"
+          else
+            echo "TAG_EXISTS=false" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.get_version.outputs.VERSION }} does not exist"
+          fi
+      
+      - name: Create tag if missing (for manual triggers)
+        if: github.event_name == 'workflow_dispatch' && steps.check_tag.outputs.TAG_EXISTS == 'false'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -a "v${{ steps.get_version.outputs.VERSION }}" -m "Release v${{ steps.get_version.outputs.VERSION }}"
+          git push origin "v${{ steps.get_version.outputs.VERSION }}"
+          echo "Created and pushed tag v${{ steps.get_version.outputs.VERSION }}"
       
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
           name: Release ${{ steps.get_version.outputs.VERSION }}
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
           draft: false
           prerelease: false
           generate_release_notes: true
