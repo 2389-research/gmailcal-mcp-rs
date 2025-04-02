@@ -2346,15 +2346,20 @@ pub mod server {
         ///   in_reply_to: Optional Message-ID that this email is replying to
         ///   references: Optional comma-separated list of Message-IDs in the email thread
         #[tool]
+        #[allow(clippy::too_many_arguments)]
         async fn create_draft_email(
             &self,
+            // Required content
             to: String,
             subject: String,
             body: String,
+            // Optional recipients
             cc: Option<String>,
             bcc: Option<String>,
+            // Optional threading
             thread_id: Option<String>,
             in_reply_to: Option<String>,
+            // Additional options
             references: Option<String>,
         ) -> McpResult<String> {
             info!("=== START create_draft_email MCP command ===");
@@ -2751,14 +2756,19 @@ pub mod server {
         ///
         /// A JSON string containing the created event details
         #[tool]
+        #[allow(clippy::too_many_arguments)]
         async fn create_event(
             &self,
+            // Calendar identification
             calendar_id: Option<String>,
+            // Event core details
             summary: String,
-            description: Option<String>,
-            location: Option<String>,
             start_time: String,
             end_time: String,
+            // Optional event details
+            description: Option<String>,
+            location: Option<String>,
+            // Participants
             attendees: Option<Vec<String>>,
         ) -> McpResult<String> {
             info!("=== START create_event MCP command ===");
