@@ -1140,7 +1140,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-gmailcal"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "axum",
  "base64 0.13.1",
