@@ -117,9 +117,14 @@ pub mod gmail_api {
     impl TokenManager {
         pub fn new(config: &Config) -> Self {
             let expiry = if config.access_token.is_some() {
-                // If we have an initial access token, set expiry to 10 minutes from now
-                // This is conservative but ensures we'll refresh soon if needed
-                SystemTime::now() + Duration::from_secs(600)
+                // If we have an initial access token, respect the expiry_in if provided
+                // or use a configurable default
+                let default_expiry_seconds = std::env::var("TOKEN_EXPIRY_SECONDS")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(600); // Default 10 minutes if not configured
+                
+                SystemTime::now() + Duration::from_secs(default_expiry_seconds)
             } else {
                 // Otherwise set expiry to now to force a refresh
                 SystemTime::now()
@@ -912,11 +917,40 @@ pub mod logging {
     ///
     /// # Returns
     ///
-    /// The path to the created log file
+    /// Sets up the logging system
+    /// 
+    /// # Arguments
+    /// 
+    /// * `log_level` - The level of logging to use
+    /// * `log_file` - Optional log file name or "memory" to use in-memory logging
+    /// 
+    /// # Returns
+    /// 
+    /// The path to the log file or a description of the logging destination
     pub fn setup_logging(
         log_level: LevelFilter,
         log_file: Option<&str>,
     ) -> std::io::Result<String> {
+        // Use the default config for simplicity - explicitly use simplelog::Config to avoid ambiguity
+        let log_config = simplelog::Config::default();
+        
+        // Check if we should use memory-only logging
+        if log_file == Some("memory") {
+            // For memory-only logging, just use stderr
+            TermLogger::init(
+                log_level,
+                log_config,
+                simplelog::TerminalMode::Stderr,
+                simplelog::ColorChoice::Auto,
+            )
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            
+            log::info!("Logging initialized to stderr only (memory mode)");
+            log::debug!("Debug logging enabled");
+            
+            return Ok(String::from("stderr-only (memory mode)"));
+        }
+        
         // Create a timestamp for the log file
         let timestamp = Local::now().format("%Y%m%d_%H").to_string();
 
@@ -937,9 +971,6 @@ pub mod logging {
             "====== GMAIL MCP SERVER LOG - Started at {} ======",
             Local::now().format("%Y-%m-%d %H:%M:%S")
         )?;
-
-        // Use the default config for simplicity - explicitly use simplelog::Config to avoid ambiguity
-        let log_config = simplelog::Config::default();
 
         // Setup loggers to write to both file and stderr
         CombinedLogger::init(vec![
@@ -3580,6 +3611,21 @@ pub mod auth {
             // Read existing .env content
             let content = std::fs::read_to_string(env_path)
                 .map_err(|e| format!("Failed to read .env file: {}", e))?;
+                
+            // Create a backup of the .env file
+            let backup_path = format!(".env.backup.{}", 
+                chrono::Local::now().format("%Y%m%d_%H%M%S"));
+            std::fs::write(&backup_path, &content)
+                .map_err(|e| format!("Failed to create backup file {}: {}", backup_path, e))?;
+            println!("✅ Created backup of .env file at {}", backup_path);
+            
+            // Ask for confirmation before proceeding
+            println!("⚠️ About to update .env file with new OAuth credentials.");
+            println!("🔄 Press Enter to continue or Ctrl+C to abort...");
+            let mut input = String::new();
+            if std::io::stdin().read_line(&mut input).is_err() {
+                println!("❌ Failed to read input, continuing anyway");
+            }
 
             // Parse the content into a HashMap
             let mut env_vars = HashMap::new();

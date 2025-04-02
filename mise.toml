@@ -6,5 +6,24 @@ description = 'Generate LLM bundle output file using repomix'
 hide = true # hide this task from the lis
 run = """
 #!/usr/bin/env bash
-npx repomix --style xml --output-show-line-numbers --output output.txt --ignore **/uv.lock,**/package-lock.json,**/.env,**/Cargo.lock,**/node_modules,**/target,**/dist,**/build,**/output.txt,**/yarn.lock
+
+# Define the ignore patterns in a more maintainable way
+IGNORE_PATTERNS=(
+  "**/uv.lock"
+  "**/package-lock.json"
+  "**/.env"
+  "**/Cargo.lock"
+  "**/node_modules"
+  "**/target"
+  "**/dist"
+  "**/build"
+  "**/output.txt"
+  "**/yarn.lock"
+)
+
+# Join the patterns with commas for repomix
+IGNORE_LIST=$(IFS=, ; echo "${IGNORE_PATTERNS[*]}")
+
+# Run repomix with the combined ignore list
+npx repomix --style xml --output-show-line-numbers --output output.txt --ignore "$IGNORE_LIST"
 """
