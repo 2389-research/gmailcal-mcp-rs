@@ -48,7 +48,10 @@ mod draft_email_tests {
 
         // Verify optional fields
         assert_eq!(draft_with_options.cc.unwrap(), "cc@example.com".to_string());
-        assert_eq!(draft_with_options.bcc.unwrap(), "bcc@example.com".to_string());
+        assert_eq!(
+            draft_with_options.bcc.unwrap(),
+            "bcc@example.com".to_string()
+        );
         assert_eq!(draft_with_options.thread_id.unwrap(), "thread123");
         assert_eq!(draft_with_options.in_reply_to.unwrap(), "message123");
         assert_eq!(draft_with_options.references.unwrap(), "ref123");
@@ -137,7 +140,7 @@ mod draft_email_tests {
         // Test empty recipients validation
         let validation_result = validate_draft(&invalid_draft);
         assert!(validation_result.is_err());
-        
+
         if let Err(GmailApiError::MessageFormatError(message)) = validation_result {
             assert_eq!(message, "At least one recipient is required");
         } else {
@@ -158,7 +161,7 @@ mod draft_email_tests {
 
         let validation_result = validate_draft(&invalid_subject);
         assert!(validation_result.is_err());
-        
+
         if let Err(GmailApiError::MessageFormatError(message)) = validation_result {
             assert_eq!(message, "Subject cannot be empty");
         } else {

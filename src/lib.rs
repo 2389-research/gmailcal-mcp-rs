@@ -123,7 +123,7 @@ pub mod gmail_api {
                     .ok()
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(600); // Default 10 minutes if not configured
-                
+
                 SystemTime::now() + Duration::from_secs(default_expiry_seconds)
             } else {
                 // Otherwise set expiry to now to force a refresh
@@ -918,14 +918,14 @@ pub mod logging {
     /// # Returns
     ///
     /// Sets up the logging system
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `log_level` - The level of logging to use
     /// * `log_file` - Optional log file name or "memory" to use in-memory logging
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The path to the log file or a description of the logging destination
     pub fn setup_logging(
         log_level: LevelFilter,
@@ -933,7 +933,7 @@ pub mod logging {
     ) -> std::io::Result<String> {
         // Use the default config for simplicity - explicitly use simplelog::Config to avoid ambiguity
         let log_config = simplelog::Config::default();
-        
+
         // Check if we should use memory-only logging
         if log_file == Some("memory") {
             // For memory-only logging, just use stderr
@@ -944,13 +944,13 @@ pub mod logging {
                 simplelog::ColorChoice::Auto,
             )
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-            
+
             log::info!("Logging initialized to stderr only (memory mode)");
             log::debug!("Debug logging enabled");
-            
+
             return Ok(String::from("stderr-only (memory mode)"));
         }
-        
+
         // Create a timestamp for the log file
         let timestamp = Local::now().format("%Y%m%d_%H").to_string();
 
@@ -3611,14 +3611,16 @@ pub mod auth {
             // Read existing .env content
             let content = std::fs::read_to_string(env_path)
                 .map_err(|e| format!("Failed to read .env file: {}", e))?;
-                
+
             // Create a backup of the .env file
-            let backup_path = format!(".env.backup.{}", 
-                chrono::Local::now().format("%Y%m%d_%H%M%S"));
+            let backup_path = format!(
+                ".env.backup.{}",
+                chrono::Local::now().format("%Y%m%d_%H%M%S")
+            );
             std::fs::write(&backup_path, &content)
                 .map_err(|e| format!("Failed to create backup file {}: {}", backup_path, e))?;
             println!("✅ Created backup of .env file at {}", backup_path);
-            
+
             // Ask for confirmation before proceeding
             println!("⚠️ About to update .env file with new OAuth credentials.");
             println!("🔄 Press Enter to continue or Ctrl+C to abort...");
