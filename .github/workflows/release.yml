@@ -4,146 +4,92 @@ on:
   push:
     tags:
       - 'v*'
-  # Allow manual triggering (useful for debugging)
   workflow_dispatch:
     inputs:
       version:
         description: 'Version to release (without v prefix)'
-        required: true
-        default: ''
+        required: false
         type: string
 
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-  BINARY_NAME: mcp-gmailcal
-
-# Permissions required for creating and uploading releases
+# Essential permissions for GitHub releases
 permissions:
   contents: write
-  discussions: write
+
+env:
+  BINARY_NAME: mcp-gmailcal
 
 jobs:
-  create-release:
+  release:
     name: Create Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.VERSION }}
+      version: ${{ env.VERSION }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
-      - name: Get version from tag
-        id: get_version_tag
-        if: github.event_name == 'push'
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      # Get version number from tag or input
+      - name: Set version (from tag)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
       
-      - name: Get version from input
-        id: get_version_input
-        if: github.event_name == 'workflow_dispatch'
-        run: echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+      - name: Set version (from input)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
+        run: echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
       
-      - name: Get version from Cargo.toml
-        id: get_version_cargo
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version == ''
+      - name: Set version (from Cargo.toml)
+        if: env.VERSION == ''
         run: |
           VERSION=$(grep -m1 'version =' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/g')
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
       
-      - name: Set version
-        id: get_version
-        run: |
-          if [ "${{ github.event_name }}" == "push" ]; then
-            VERSION="${{ steps.get_version_tag.outputs.VERSION }}"
-          elif [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ steps.get_version_input.outputs.VERSION }}"
-          else
-            VERSION="${{ steps.get_version_cargo.outputs.VERSION }}"
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Using version: $VERSION"
+      - name: Show version
+        run: echo "Building release for version ${{ env.VERSION }}"
       
-      - name: Check tag exists
-        id: check_tag
-        run: |
-          if git tag -l "v${{ steps.get_version.outputs.VERSION }}" | grep -q "v${{ steps.get_version.outputs.VERSION }}"; then
-            echo "TAG_EXISTS=true" >> $GITHUB_OUTPUT
-            echo "Tag v${{ steps.get_version.outputs.VERSION }} already exists"
-          else
-            echo "TAG_EXISTS=false" >> $GITHUB_OUTPUT
-            echo "Tag v${{ steps.get_version.outputs.VERSION }} does not exist"
-          fi
-      
-      - name: Create tag if missing (for manual triggers)
-        if: github.event_name == 'workflow_dispatch' && steps.check_tag.outputs.TAG_EXISTS == 'false'
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git tag -a "v${{ steps.get_version.outputs.VERSION }}" -m "Release v${{ steps.get_version.outputs.VERSION }}"
-          git push origin "v${{ steps.get_version.outputs.VERSION }}"
-          echo "Created and pushed tag v${{ steps.get_version.outputs.VERSION }}"
-      
+      # Create GitHub Release
       - name: Create GitHub Release
-        id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          name: Release ${{ steps.get_version.outputs.VERSION }}
-          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          name: Release ${{ env.VERSION }}
+          tag_name: v${{ env.VERSION }}
           draft: false
-          prerelease: false
           generate_release_notes: true
           token: ${{ github.token }}
-
+  
+  # Matrix build for multiple platforms
   build:
-    needs: create-release
-    name: Build ${{ matrix.os }}
+    name: Build for ${{ matrix.platform }}
+    needs: release
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            platform: linux
-            arch: x86_64
+            platform: Linux
             target: x86_64-unknown-linux-gnu
             binary_path: target/release/mcp-gmailcal
             asset_name: mcp-gmailcal-linux-x86_64.tar.gz
-            use_cross: false
-            strip: true
             
           - os: macos-latest
-            platform: macos
-            arch: x86_64
+            platform: macOS Intel
             target: x86_64-apple-darwin
             binary_path: target/release/mcp-gmailcal
             asset_name: mcp-gmailcal-macos-x86_64.tar.gz
-            use_cross: false
-            strip: true
             
           - os: macos-latest
-            platform: macos
-            arch: aarch64
+            platform: macOS Apple Silicon
             target: aarch64-apple-darwin
             binary_path: target/aarch64-apple-darwin/release/mcp-gmailcal
-            asset_name: mcp-gmailcal-macos-aarch64.tar.gz
-            use_cross: false
-            strip: true
+            asset_name: mcp-gmailcal-macos-arm64.tar.gz
             
           - os: windows-latest
-            platform: windows
-            arch: x86_64
+            platform: Windows
             target: x86_64-pc-windows-msvc
             binary_path: target/release/mcp-gmailcal.exe
             asset_name: mcp-gmailcal-windows-x86_64.zip
-            use_cross: false
-            strip: false
 
     steps:
       - name: Checkout code
@@ -154,45 +100,34 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-      
-      - name: Install Cross (if needed)
-        if: matrix.use_cross
-        run: cargo install cross
-      
-      - name: Build with Cargo
-        if: "!matrix.use_cross"
+      - name: Build for ${{ matrix.platform }}
         run: cargo build --release --target ${{ matrix.target }}
       
-      - name: Build with Cross (if needed)
-        if: matrix.use_cross
-        run: cross build --release --target ${{ matrix.target }}
-      
       - name: Strip binary (Unix)
-        if: matrix.strip && (matrix.platform == 'linux' || matrix.platform == 'macos')
+        if: runner.os != 'Windows'
         run: strip ${{ matrix.binary_path }}
+        continue-on-error: true
       
-      - name: Bundle release assets (Unix)
-        if: matrix.platform == 'linux' || matrix.platform == 'macos'
+      # Package assets based on platform
+      - name: Package for Unix
+        if: runner.os != 'Windows'
         run: |
           mkdir -p dist
           cp ${{ matrix.binary_path }} dist/${{ env.BINARY_NAME }}
           cd dist && tar -czf ${{ matrix.asset_name }} ${{ env.BINARY_NAME }}
       
-      - name: Bundle release assets (Windows)
-        if: matrix.platform == 'windows'
+      - name: Package for Windows
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           mkdir -p dist
           cp ${{ matrix.binary_path }} dist/
           cd dist && 7z a -tzip ${{ matrix.asset_name }} ${{ env.BINARY_NAME }}.exe
       
-      - name: Upload release assets
+      # Upload to GitHub Release
+      - name: Upload assets
         uses: softprops/action-gh-release@v1
         with:
           files: dist/${{ matrix.asset_name }}
-          tag_name: v${{ needs.create-release.outputs.version }}
+          tag_name: ${{ github.ref_name }}
           token: ${{ github.token }}
