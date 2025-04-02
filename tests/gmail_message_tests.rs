@@ -14,7 +14,7 @@ fn load_test_json(json_str: &str) -> serde_json::Value {
 #[cfg(test)]
 mod message_parsing_tests {
     use super::*;
-    
+
     // This test is a placeholder and needs to be adapted to the actual EmailMessage type
     #[test]
     fn test_parse_simple_message() {
@@ -37,10 +37,10 @@ mod message_parsing_tests {
                 "mimeType": "text/plain"
             }
         });
-        
+
         // The following lines need to be adapted to match the actual implementation
         // let message = EmailMessage::from_api_response(json).unwrap();
-        
+
         // Verify the parsed fields
         // assert_eq!(message.id, "12345");
         // assert_eq!(message.thread_id, "thread123");
@@ -51,7 +51,7 @@ mod message_parsing_tests {
         // assert_eq!(message.body_text.unwrap(), "This is a test email body");
         // assert!(message.body_html.is_none()); // No HTML body in this test
     }
-    
+
     // This test is a placeholder for parsing multipart messages
     #[test]
     fn test_parse_multipart_message() {
@@ -86,11 +86,11 @@ mod message_parsing_tests {
                 ]
             }
         });
-        
+
         // This would need to be adapted to match the actual implementation
         // let message = EmailMessage::from_api_response(json).unwrap();
     }
-    
+
     // This test is a placeholder for handling malformed messages
     #[test]
     fn test_parse_malformed_message() {
@@ -108,10 +108,10 @@ mod message_parsing_tests {
                 "mimeType": "text/plain"
             }
         });
-        
+
         // This would need to be adapted to match the actual implementation
         // let message = EmailMessage::from_api_response(json);
-        
+
         // Check that the parser handles missing fields gracefully
         // assert!(message.is_ok()); // Should not fail with missing fields
     }

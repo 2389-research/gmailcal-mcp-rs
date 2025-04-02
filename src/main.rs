@@ -7,7 +7,7 @@ use std::env;
 #[derive(Parser)]
 #[clap(name = "Gmail MCP Server")]
 #[clap(author = "Gmail MCP Contributors")]
-#[clap(version = "0.1.0")]
+#[clap(version = "0.2.0")]
 #[clap(about = "MCP server for Gmail access", long_about = None)]
 struct Cli {
     #[clap(subcommand)]
@@ -82,15 +82,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Special handling for read-only environments
+    // Initialize logging based on environment
     let log_file = if is_read_only {
-        env_logger::builder()
-            .filter_level(LevelFilter::Debug)
-            .init();
-        info!("Using in-memory logging (stderr) in read-only environment");
-        String::from("stderr-only (read-only environment)")
+        // Use in-memory logging for read-only environments
+        setup_logging(LevelFilter::Debug, Some("memory"))?
     } else {
-        // Initialize logging with file output
+        // Use file logging for normal operation
         setup_logging(LevelFilter::Trace, None)?
     };
 

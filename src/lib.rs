@@ -117,9 +117,14 @@ pub mod gmail_api {
     impl TokenManager {
         pub fn new(config: &Config) -> Self {
             let expiry = if config.access_token.is_some() {
-                // If we have an initial access token, set expiry to 10 minutes from now
-                // This is conservative but ensures we'll refresh soon if needed
-                SystemTime::now() + Duration::from_secs(600)
+                // If we have an initial access token, respect the expiry_in if provided
+                // or use a configurable default
+                let default_expiry_seconds = std::env::var("TOKEN_EXPIRY_SECONDS")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(600); // Default 10 minutes if not configured
+
+                SystemTime::now() + Duration::from_secs(default_expiry_seconds)
             } else {
                 // Otherwise set expiry to now to force a refresh
                 SystemTime::now()
@@ -912,11 +917,40 @@ pub mod logging {
     ///
     /// # Returns
     ///
-    /// The path to the created log file
+    /// Sets up the logging system
+    ///
+    /// # Arguments
+    ///
+    /// * `log_level` - The level of logging to use
+    /// * `log_file` - Optional log file name or "memory" to use in-memory logging
+    ///
+    /// # Returns
+    ///
+    /// The path to the log file or a description of the logging destination
     pub fn setup_logging(
         log_level: LevelFilter,
         log_file: Option<&str>,
     ) -> std::io::Result<String> {
+        // Use the default config for simplicity - explicitly use simplelog::Config to avoid ambiguity
+        let log_config = simplelog::Config::default();
+
+        // Check if we should use memory-only logging
+        if log_file == Some("memory") {
+            // For memory-only logging, just use stderr
+            TermLogger::init(
+                log_level,
+                log_config,
+                simplelog::TerminalMode::Stderr,
+                simplelog::ColorChoice::Auto,
+            )
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+            log::info!("Logging initialized to stderr only (memory mode)");
+            log::debug!("Debug logging enabled");
+
+            return Ok(String::from("stderr-only (memory mode)"));
+        }
+
         // Create a timestamp for the log file
         let timestamp = Local::now().format("%Y%m%d_%H").to_string();
 
@@ -937,9 +971,6 @@ pub mod logging {
             "====== GMAIL MCP SERVER LOG - Started at {} ======",
             Local::now().format("%Y-%m-%d %H:%M:%S")
         )?;
-
-        // Use the default config for simplicity - explicitly use simplelog::Config to avoid ambiguity
-        let log_config = simplelog::Config::default();
 
         // Setup loggers to write to both file and stderr
         CombinedLogger::init(vec![
@@ -2315,15 +2346,20 @@ pub mod server {
         ///   in_reply_to: Optional Message-ID that this email is replying to
         ///   references: Optional comma-separated list of Message-IDs in the email thread
         #[tool]
+        #[allow(clippy::too_many_arguments)]
         async fn create_draft_email(
             &self,
+            // Required content
             to: String,
             subject: String,
             body: String,
+            // Optional recipients
             cc: Option<String>,
             bcc: Option<String>,
+            // Optional threading
             thread_id: Option<String>,
             in_reply_to: Option<String>,
+            // Additional options
             references: Option<String>,
         ) -> McpResult<String> {
             info!("=== START create_draft_email MCP command ===");
@@ -2720,14 +2756,19 @@ pub mod server {
         ///
         /// A JSON string containing the created event details
         #[tool]
+        #[allow(clippy::too_many_arguments)]
         async fn create_event(
             &self,
+            // Calendar identification
             calendar_id: Option<String>,
+            // Event core details
             summary: String,
-            description: Option<String>,
-            location: Option<String>,
             start_time: String,
             end_time: String,
+            // Optional event details
+            description: Option<String>,
+            location: Option<String>,
+            // Participants
             attendees: Option<Vec<String>>,
         ) -> McpResult<String> {
             info!("=== START create_event MCP command ===");
@@ -3581,6 +3622,23 @@ pub mod auth {
             let content = std::fs::read_to_string(env_path)
                 .map_err(|e| format!("Failed to read .env file: {}", e))?;
 
+            // Create a backup of the .env file
+            let backup_path = format!(
+                ".env.backup.{}",
+                chrono::Local::now().format("%Y%m%d_%H%M%S")
+            );
+            std::fs::write(&backup_path, &content)
+                .map_err(|e| format!("Failed to create backup file {}: {}", backup_path, e))?;
+            println!("✅ Created backup of .env file at {}", backup_path);
+
+            // Ask for confirmation before proceeding
+            println!("⚠️ About to update .env file with new OAuth credentials.");
+            println!("🔄 Press Enter to continue or Ctrl+C to abort...");
+            let mut input = String::new();
+            if std::io::stdin().read_line(&mut input).is_err() {
+                println!("❌ Failed to read input, continuing anyway");
+            }
+
             // Parse the content into a HashMap
             let mut env_vars = HashMap::new();
             for line in content.lines() {
@@ -3644,7 +3702,7 @@ pub mod auth {
 
         Ok(())
     }
-    
+
     // Generate the Claude Desktop configuration file
     fn generate_claude_desktop_config(
         client_id: &str,
@@ -3653,11 +3711,11 @@ pub mod auth {
         access_token: &str,
     ) -> Result<(), String> {
         use serde_json::{json, to_string_pretty};
-        
+
         // Determine the executable path
         let current_exe = std::env::current_exe()
             .map_err(|e| format!("Failed to get current executable path: {}", e))?;
-        
+
         // Get the target/release version of the path if possible
         let mut command_path = current_exe.to_string_lossy().to_string();
         if let Some(debug_index) = command_path.find("target/debug") {
@@ -3667,7 +3725,7 @@ pub mod auth {
                 &command_path[0..debug_index]
             );
         }
-        
+
         // Create the config JSON
         let config = json!({
             "mcpServers": {
@@ -3683,18 +3741,18 @@ pub mod auth {
                 }
             }
         });
-        
+
         // Convert to pretty JSON
-        let json_string = to_string_pretty(&config)
-            .map_err(|e| format!("Failed to serialize config: {}", e))?;
-            
+        let json_string =
+            to_string_pretty(&config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+
         // Write to file
         let config_path = "claude_desktop_config.json";
         std::fs::write(config_path, json_string)
             .map_err(|e| format!("Failed to write config file: {}", e))?;
-            
+
         println!("Claude Desktop config saved to {}", config_path);
-        
+
         Ok(())
     }
 
@@ -4281,17 +4339,15 @@ pub mod calendar_api {
                 }
 
                 let conference_solution = conf_data.get("conferenceSolution").and_then(|sol| {
-                    if let Some(name) = sol.get("name").and_then(|v| v.as_str()) {
-                        Some(ConferenceSolution {
+                    sol.get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|name| ConferenceSolution {
                             name: name.to_string(),
                             key: sol
                                 .get("key")
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string()),
                         })
-                    } else {
-                        None
-                    }
                 });
 
                 if !entry_points.is_empty() || conference_solution.is_some() {
@@ -4314,8 +4370,9 @@ pub mod calendar_api {
 
             // Parse creator
             let creator = item.get("creator").and_then(|c| {
-                if let Some(email) = c.get("email").and_then(|v| v.as_str()) {
-                    Some(EventOrganizer {
+                c.get("email")
+                    .and_then(|v| v.as_str())
+                    .map(|email| EventOrganizer {
                         email: email.to_string(),
                         display_name: c
                             .get("displayName")
@@ -4323,15 +4380,13 @@ pub mod calendar_api {
                             .map(|s| s.to_string()),
                         self_: c.get("self").and_then(|v| v.as_bool()),
                     })
-                } else {
-                    None
-                }
             });
 
             // Parse organizer
             let organizer = item.get("organizer").and_then(|o| {
-                if let Some(email) = o.get("email").and_then(|v| v.as_str()) {
-                    Some(EventOrganizer {
+                o.get("email")
+                    .and_then(|v| v.as_str())
+                    .map(|email| EventOrganizer {
                         email: email.to_string(),
                         display_name: o
                             .get("displayName")
@@ -4339,9 +4394,6 @@ pub mod calendar_api {
                             .map(|s| s.to_string()),
                         self_: o.get("self").and_then(|v| v.as_bool()),
                     })
-                } else {
-                    None
-                }
             });
 
             Ok(CalendarEvent {

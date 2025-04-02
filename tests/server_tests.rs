@@ -24,7 +24,7 @@ fn setup() {
 #[cfg(test)]
 mod server_tests {
     use super::*;
-    
+
     // Basic test that verifies the server can be created
     #[test]
     fn test_server_creation() {
@@ -32,17 +32,17 @@ mod server_tests {
         let server = GmailServer::new();
         // Simply verify that we can create the server
     }
-    
+
     // Test parsing a list_messages command
     #[test]
     fn test_command_parsing() {
         setup();
         let server = GmailServer::new();
-        
+
         // This test would need to be adapted to match the actual implementation
         // by calling methods on the server to parse commands
     }
-    
+
     // Test response formatting
     #[test]
     fn test_response_formatting() {
