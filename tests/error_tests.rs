@@ -1,10 +1,8 @@
-use mcp_gmailcal::config::ConfigError;
+use mcp_gmailcal::errors::{ConfigError, GmailApiError};
 /// Error Handling Tests Module
 ///
 /// This module contains tests for the error handling functionality,
 /// focusing on error mapping and formatting.
-///
-use mcp_gmailcal::gmail_api::GmailApiError;
 use std::env;
 
 #[cfg(test)]

@@ -3,7 +3,8 @@
 /// This module contains tests for the draft email functionality,
 /// focusing on creation, validation, and API formatting.
 ///
-use mcp_gmailcal::gmail_api::{DraftEmail, GmailApiError};
+use mcp_gmailcal::gmail_api::DraftEmail;
+use mcp_gmailcal::errors::GmailApiError;
 use serde_json::json;
 
 #[cfg(test)]

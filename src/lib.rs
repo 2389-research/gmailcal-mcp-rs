@@ -1,8 +1,16 @@
+// Error exports
+pub use crate::errors::{
+    ConfigError, GmailApiError, PeopleApiError, CalendarApiError,
+    GmailResult, PeopleResult, CalendarResult, error_codes
+};
 pub use crate::config::Config;
 pub use crate::gmail_api::EmailMessage;
 pub use crate::logging::setup_logging;
 pub use crate::people_api::PeopleClient;
 pub use crate::prompts::*;
+
+// Module for error handling
+pub mod errors;
 /// Gmail MCP Server Implementation
 ///
 /// This crate provides an MCP (Model Completion Protocol) server for Gmail,
@@ -30,16 +38,7 @@ pub mod config {
     use dotenv::dotenv;
     use log::debug;
     use std::env;
-    use thiserror::Error;
-
-    #[derive(Debug, Error)]
-    pub enum ConfigError {
-        #[error("Missing environment variable: {0}")]
-        MissingEnvVar(String),
-
-        #[error("Environment error: {0}")]
-        EnvError(#[from] env::VarError),
-    }
+    use crate::errors::ConfigError;
 
     #[derive(Debug, Clone)]
     pub struct Config {
@@ -270,28 +269,10 @@ pub mod gmail_api {
     }
 
     // Gmail API error types
-    #[derive(Debug, Error)]
-    pub enum GmailApiError {
-        #[error("Gmail API error: {0}")]
-        ApiError(String),
-
-        #[error("Authentication error: {0}")]
-        AuthError(String),
-
-        #[error("Message retrieval error: {0}")]
-        MessageRetrievalError(String),
-
-        #[error("Message format error: {0}")]
-        MessageFormatError(String),
-
-        #[error("Network error: {0}")]
-        NetworkError(String),
-
-        #[error("Rate limit error: {0}")]
-        RateLimitError(String),
-    }
-
-    pub type Result<T> = std::result::Result<T, GmailApiError>;
+    use crate::errors::{GmailApiError, GmailResult};
+    
+    // Alias for backward compatibility within this module
+    type Result<T> = GmailResult<T>;
 
     pub struct GmailService {
         client: Client,
@@ -1005,25 +986,10 @@ pub mod people_api {
 
     const PEOPLE_API_BASE_URL: &str = "https://people.googleapis.com/v1";
 
-    #[derive(Debug, Error)]
-    pub enum PeopleApiError {
-        #[error("Network error: {0}")]
-        NetworkError(String),
-
-        #[error("Authentication error: {0}")]
-        AuthError(String),
-
-        #[error("People API error: {0}")]
-        ApiError(String),
-
-        #[error("Invalid input: {0}")]
-        InvalidInput(String),
-
-        #[error("Parse error: {0}")]
-        ParseError(String),
-    }
-
-    type Result<T> = std::result::Result<T, PeopleApiError>;
+    use crate::errors::{PeopleApiError, PeopleResult};
+    
+    // Alias for backward compatibility within this module
+    type Result<T> = PeopleResult<T>;
 
     // Contact information representation
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1465,8 +1431,10 @@ pub mod server {
     use mcp_attr::{Error as McpError, Result as McpResult};
     use serde_json::json;
 
-    use crate::config::{Config, ConfigError};
-    use crate::gmail_api::{GmailApiError, GmailService};
+    use crate::config::Config;
+    use crate::errors::ConfigError;
+    use crate::gmail_api::GmailService;
+    use crate::errors::GmailApiError;
 
     // Helper functions
     mod helpers {
@@ -3791,25 +3759,10 @@ pub mod calendar_api {
 
     const CALENDAR_API_BASE_URL: &str = "https://www.googleapis.com/calendar/v3";
 
-    #[derive(Debug, Error)]
-    pub enum CalendarApiError {
-        #[error("Network error: {0}")]
-        NetworkError(String),
-
-        #[error("Authentication error: {0}")]
-        AuthError(String),
-
-        #[error("Calendar API error: {0}")]
-        ApiError(String),
-
-        #[error("Invalid input: {0}")]
-        InvalidInput(String),
-
-        #[error("Parse error: {0}")]
-        ParseError(String),
-    }
-
-    type Result<T> = std::result::Result<T, CalendarApiError>;
+    use crate::errors::{CalendarApiError, CalendarResult};
+    
+    // Alias for backward compatibility within this module
+    type Result<T> = CalendarResult<T>;
 
     // Calendar event representation
     #[derive(Debug, Clone, Serialize, Deserialize)]
