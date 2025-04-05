@@ -3,7 +3,7 @@ pub use crate::errors::{
     ConfigError, GmailApiError, PeopleApiError, CalendarApiError,
     GmailResult, PeopleResult, CalendarResult, error_codes
 };
-pub use crate::config::Config;
+pub use crate::config::{Config, GMAIL_API_BASE_URL, OAUTH_TOKEN_URL, get_token_expiry_seconds};
 pub use crate::gmail_api::EmailMessage;
 pub use crate::logging::setup_logging;
 pub use crate::people_api::PeopleClient;
@@ -11,6 +11,8 @@ pub use crate::prompts::*;
 
 // Module for error handling
 pub mod errors;
+// Module for configuration
+pub mod config;
 /// Gmail MCP Server Implementation
 ///
 /// This crate provides an MCP (Model Completion Protocol) server for Gmail,
@@ -33,52 +35,6 @@ pub mod errors;
 // Re-export key types for use in tests
 pub use crate::server::GmailServer;
 
-// Module for centralized configuration
-pub mod config {
-    use dotenv::dotenv;
-    use log::debug;
-    use std::env;
-    use crate::errors::ConfigError;
-
-    #[derive(Debug, Clone)]
-    pub struct Config {
-        pub client_id: String,
-        pub client_secret: String,
-        pub refresh_token: String,
-        pub access_token: Option<String>,
-    }
-
-    impl Config {
-        pub fn from_env() -> Result<Self, ConfigError> {
-            // Attempt to load .env file if present
-            let _ = dotenv();
-
-            debug!("Loading Gmail OAuth configuration from environment");
-
-            // Get required variables
-            let client_id = env::var("GMAIL_CLIENT_ID")
-                .map_err(|_| ConfigError::MissingEnvVar("GMAIL_CLIENT_ID".to_string()))?;
-
-            let client_secret = env::var("GMAIL_CLIENT_SECRET")
-                .map_err(|_| ConfigError::MissingEnvVar("GMAIL_CLIENT_SECRET".to_string()))?;
-
-            let refresh_token = env::var("GMAIL_REFRESH_TOKEN")
-                .map_err(|_| ConfigError::MissingEnvVar("GMAIL_REFRESH_TOKEN".to_string()))?;
-
-            // Get optional access token
-            let access_token = env::var("GMAIL_ACCESS_TOKEN").ok();
-
-            debug!("OAuth configuration loaded successfully");
-
-            Ok(Config {
-                client_id,
-                client_secret,
-                refresh_token,
-                access_token,
-            })
-        }
-    }
-}
 
 // Direct Gmail API implementation
 pub mod gmail_api {
@@ -90,8 +46,7 @@ pub mod gmail_api {
     use std::time::{Duration, SystemTime};
     
 
-    const GMAIL_API_BASE_URL: &str = "https://gmail.googleapis.com/gmail/v1";
-    const OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+    use crate::config::{GMAIL_API_BASE_URL, OAUTH_TOKEN_URL};
 
     // Token response for OAuth2
     #[derive(Debug, Deserialize)]
@@ -116,14 +71,8 @@ pub mod gmail_api {
     impl TokenManager {
         pub fn new(config: &Config) -> Self {
             let expiry = if config.access_token.is_some() {
-                // If we have an initial access token, respect the expiry_in if provided
-                // or use a configurable default
-                let default_expiry_seconds = std::env::var("TOKEN_EXPIRY_SECONDS")
-                    .ok()
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(600); // Default 10 minutes if not configured
-
-                SystemTime::now() + Duration::from_secs(default_expiry_seconds)
+                // If we have an initial access token, use the configurable default
+                SystemTime::now() + Duration::from_secs(crate::config::get_token_expiry_seconds())
             } else {
                 // Otherwise set expiry to now to force a refresh
                 SystemTime::now()
