@@ -609,10 +609,12 @@ impl McpServer for GmailServer {
                     // Log error but continue with other emails
                     error!("Failed to analyze email {}: {}", id, err);
 
-                    // Add error entry to results
+                    // Add error entry to results with more detailed information
                     results.push(json!({
                         "email_id": id,
-                        "error": format!("Failed to retrieve email: {}", err)
+                        "error": format!("Failed to retrieve email: {}", err),
+                        "message": "This email failed processing but other emails in the batch will continue to process",
+                        "status": "error"
                     }));
                 }
             }

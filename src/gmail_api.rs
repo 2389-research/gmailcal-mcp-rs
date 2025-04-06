@@ -547,9 +547,17 @@ impl GmailService {
         message.push_str(&draft.body);
 
         // Base64 encode the message
+        // Encode the message as base64url format for Gmail API
+        // Note: For large messages with attachments or nested MIME structures,
+        // we would need enhanced handling to process them in chunks or parts
+        // This handles the basic email case - more complex handling would be needed for
+        // large attachments, nested content, or multipart messages exceeding size limits
         let encoded_message = base64::encode(message.as_bytes())
             .replace('+', "-")
             .replace('/', "_");
+
+        // Log the message size for debugging large messages
+        debug!("Encoded message size: {} bytes", encoded_message.len());
 
         // Create the JSON payload
         let mut message_payload = serde_json::json!({

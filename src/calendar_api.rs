@@ -359,14 +359,20 @@ impl CalendarClient {
         }
 
         // Generate unique ID for request for idempotency
+        // This header ensures the request can be safely retried without creating duplicate events
+        // Google recommends using the same ID for retries of the same logical operation
         let request_id = Uuid::new_v4().to_string();
+        debug!("Using idempotency header X-Goog-Request-ID: {}", request_id);
+
+        // Store the request ID for potential retry operations
+        // This would typically be stored in a transaction log or retry mechanism
 
         let response = self
             .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
-            // Add idempotency header
+            // Add idempotency header to prevent duplicate events on retry
             .header("X-Goog-Request-ID", request_id)
             .json(&event_data)
             .send()

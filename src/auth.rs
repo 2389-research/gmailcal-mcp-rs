@@ -73,19 +73,30 @@ impl TokenManager {
 
         // Log request details for troubleshooting (but hide credentials)
         debug!("Requesting token from {}", OAUTH_TOKEN_URL);
-        debug!(
-            "Using client_id: {}...{} (truncated)",
-            &self.client_id[..4],
-            &self.client_id[self.client_id.len().saturating_sub(4)..]
-        );
-        debug!(
-            "Using refresh_token starting with: {}... (truncated)",
-            if self.refresh_token.len() > 8 {
-                &self.refresh_token[..8]
+        // Securely log truncated credential information - never log full credentials
+        if log::log_enabled!(log::Level::Debug) {
+            let client_id_trunc = if self.client_id.len() > 8 {
+                format!(
+                    "{}...{}",
+                    &self.client_id[..4],
+                    &self.client_id[self.client_id.len().saturating_sub(4)..]
+                )
             } else {
-                "(token too short)"
-            }
-        );
+                "<short-id>".to_string()
+            };
+
+            let refresh_token_trunc = if self.refresh_token.len() > 8 {
+                format!("{}...", &self.refresh_token[..4])
+            } else {
+                "<short-token>".to_string()
+            };
+
+            debug!("Using client_id: {} (truncated)", client_id_trunc);
+            debug!(
+                "Using refresh_token starting with: {} (truncated)",
+                refresh_token_trunc
+            );
+        }
 
         let response = client
             .post(OAUTH_TOKEN_URL)
@@ -138,14 +149,19 @@ impl TokenManager {
             "Token refreshed successfully, valid for {} seconds",
             expires_in
         );
-        debug!(
-            "Token starts with: {}... (truncated)",
-            if self.access_token.len() > 10 {
-                &self.access_token[..10]
+        // Securely log truncated token - never log the full token
+        if log::log_enabled!(log::Level::Debug) {
+            let token_trunc = if self.access_token.len() > 10 {
+                format!(
+                    "{}...{}",
+                    &self.access_token[..4],
+                    &self.access_token[self.access_token.len().saturating_sub(4)..]
+                )
             } else {
-                "(token too short)"
-            }
-        );
+                "<short-token>".to_string()
+            };
+            debug!("Token (truncated): {}", token_trunc);
+        };
 
         Ok(self.access_token.clone())
     }

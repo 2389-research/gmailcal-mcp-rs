@@ -13,6 +13,8 @@ struct EventValidator;
 impl EventValidator {
     fn validate_event(event: &CalendarEvent) -> Result<(), CalendarApiError> {
         // Validate event time range (end must be after start)
+        // Note: We disallow zero-duration events (where end_time equals start_time)
+        // as they don't have any practical calendar representation
         if event.end_time <= event.start_time {
             return Err(CalendarApiError::EventFormatError(
                 "Event end time must be after start time".to_string(),
