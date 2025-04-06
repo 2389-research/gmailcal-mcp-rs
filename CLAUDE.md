@@ -8,6 +8,10 @@
 - **Integration tests**: `cargo test --test integration_tests`
 - **Lint**: `cargo clippy`
 - **Format**: `cargo fmt`
+- **Documentation**: `cargo doc --no-deps --open`
+- **Security audit**: `cargo audit`
+- **Benchmarking**: `cargo bench`
+- **Code coverage**: `cargo tarpaulin`
 - **Run with MCP inspector**: `npx @modelcontextprotocol/inspector cargo run`
 
 ## Code Style Guidelines
