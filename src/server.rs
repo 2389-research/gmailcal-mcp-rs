@@ -1,5 +1,4 @@
 use log::{debug, error, info};
-use mcp_attr::jsoncall::ErrorCode;
 use mcp_attr::server::{mcp_server, McpServer};
 use mcp_attr::{Error as McpError, Result as McpResult};
 use serde_json::json;
