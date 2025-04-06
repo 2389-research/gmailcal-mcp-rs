@@ -61,7 +61,7 @@ For each module extraction:
   - Test with `--memory-only` flag
   - Verify log levels are respected
 
-### Step 4: Utility Functions (`utils.rs`)
+### ✅ Step 4: Utility Functions (`utils.rs`) - COMPLETED
 - Extract helper functions, formatters, and reusable code
 - Update re-exports in lib.rs
 - Testing:
