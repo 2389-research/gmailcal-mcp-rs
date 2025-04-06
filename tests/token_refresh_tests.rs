@@ -4,9 +4,7 @@
 /// focusing on error conditions and edge cases.
 use mcp_gmailcal::auth::TokenManager;
 use mcp_gmailcal::config::Config;
-use mcp_gmailcal::errors::GmailApiError;
 use reqwest::Client;
-use std::time::{Duration, SystemTime};
 
 // Mock configuration for token testing
 fn mock_config() -> Config {

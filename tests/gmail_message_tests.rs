@@ -3,10 +3,10 @@
 /// This module contains tests for the email message parsing functionality,
 /// focusing on parsing various message formats and handling edge cases.
 ///
-use mcp_gmailcal::gmail_api::EmailMessage;
 use serde_json::json;
 
-// Load test fixture from a string for testing
+// Load test fixture from a string for testing - not used in current tests
+#[allow(dead_code)]
 fn load_test_json(json_str: &str) -> serde_json::Value {
     serde_json::from_str(json_str).expect("Failed to parse test JSON")
 }
@@ -19,7 +19,7 @@ mod message_parsing_tests {
     #[test]
     fn test_parse_simple_message() {
         // Create a simple test message JSON
-        let json = json!({
+        let _json = json!({
             "id": "12345",
             "threadId": "thread123",
             "snippet": "This is a test email",
@@ -56,7 +56,7 @@ mod message_parsing_tests {
     #[test]
     fn test_parse_multipart_message() {
         // Create a multipart test message JSON
-        let json = json!({
+        let _json = json!({
             "id": "67890",
             "threadId": "thread456",
             "snippet": "This is a multipart email",
@@ -95,7 +95,7 @@ mod message_parsing_tests {
     #[test]
     fn test_parse_malformed_message() {
         // Create a malformed test message JSON (missing fields, etc.)
-        let json = json!({
+        let _json = json!({
             "id": "malformed",
             // Missing threadId
             "snippet": "This is a malformed email",

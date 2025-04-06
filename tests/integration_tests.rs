@@ -26,7 +26,7 @@ fn setup() {
 #[test]
 fn test_server_creation() {
     setup();
-    let server = GmailServer::new();
+    let _server = GmailServer::new();
     // Simply verify that we can create the server
     // Environment variables will be checked when using the server's methods
 

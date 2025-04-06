@@ -11,14 +11,15 @@ struct Calendar {
     pub summary: String,
     pub time_zone: Option<String>,
     pub access_role: Option<String>,
+    #[allow(dead_code)]
     pub background_color: Option<String>,
+    #[allow(dead_code)]
     pub foreground_color: Option<String>,
     pub primary: Option<bool>,
 }
 use chrono::{DateTime, Utc};
 use mcp_gmailcal::config::Config;
 use reqwest::Client;
-use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 

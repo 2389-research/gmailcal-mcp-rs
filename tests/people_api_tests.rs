@@ -5,7 +5,7 @@
 ///
 use mcp_gmailcal::config::Config;
 use mcp_gmailcal::people_api::{
-    Contact, EmailAddress, Organization, PeopleClient, PersonName, PhoneNumber, Photo,
+    Contact, EmailAddress, Organization, PersonName, PhoneNumber, Photo,
 };
 use reqwest::Client;
 use serde_json::{json, Value};

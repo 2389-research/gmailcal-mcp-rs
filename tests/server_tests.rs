@@ -4,7 +4,6 @@
 /// focusing on command parsing, validation, and response formatting.
 ///
 use mcp_gmailcal::GmailServer;
-use serde_json::{json, Value};
 use std::env;
 use std::sync::Once;
 
@@ -29,7 +28,7 @@ mod server_tests {
     #[test]
     fn test_server_creation() {
         setup();
-        let server = GmailServer::new();
+        let _server = GmailServer::new();
         // Simply verify that we can create the server
     }
 
@@ -37,7 +36,7 @@ mod server_tests {
     #[test]
     fn test_command_parsing() {
         setup();
-        let server = GmailServer::new();
+        let _server = GmailServer::new();
 
         // This test would need to be adapted to match the actual implementation
         // by calling methods on the server to parse commands

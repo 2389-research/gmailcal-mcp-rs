@@ -5,23 +5,9 @@
 ///
 mod mock_client;
 
-use mock_client::{create_mock_client, MockGmailClient, TestEmail};
-use serde_json::json;
-use std::env;
-use std::sync::{Arc, Mutex, Once};
+use mock_client::{create_mock_client, TestEmail};
 
-// Used to ensure environment setup happens only once
-static INIT: Once = Once::new();
-
-// Setup function to initialize environment variables for testing
-fn setup() {
-    INIT.call_once(|| {
-        // Set mock environment variables for testing
-        env::set_var("GMAIL_CLIENT_ID", "test_client_id");
-        env::set_var("GMAIL_CLIENT_SECRET", "test_client_secret");
-        env::set_var("GMAIL_REFRESH_TOKEN", "test_refresh_token");
-    });
-}
+// Not needed for these tests as mock client is used directly
 
 #[test]
 fn test_mock_client_list_messages() {

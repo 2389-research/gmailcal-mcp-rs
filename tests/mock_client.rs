@@ -185,4 +185,5 @@ pub fn create_mock_client() -> MockGmailClient {
 }
 
 // Create a type alias for a thread-safe mock client
+#[allow(dead_code)]
 pub type SharedMockClient = Arc<Mutex<MockGmailClient>>;

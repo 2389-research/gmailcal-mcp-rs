@@ -2,14 +2,10 @@
 ///
 /// This module contains tests for security aspects of the application,
 /// focusing on token handling, sensitive data logging, and authorization.
-use log::{debug, error, info, warn};
-use mcp_gmailcal::auth::TokenManager;
 use mcp_gmailcal::config::Config;
 use mcp_gmailcal::errors::{GmailApiError, GmailResult};
-use mcp_gmailcal::oauth;
 use serde_json::json;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
 
 fn create_sensitive_config() -> Config {
     Config {
@@ -37,6 +33,7 @@ impl MockLogger {
         logs.push(message.to_string());
     }
 
+    #[allow(dead_code)]
     fn contains_sensitive_data(&self, sensitive_data: &[&str]) -> bool {
         let logs = self.logs.lock().unwrap();
         for log in logs.iter() {
@@ -99,7 +96,7 @@ fn handle_token(config: &Config, logger: &MockLogger) -> String {
 }
 
 // Simulated OAuth token request function
-fn make_token_request(client_id: &str, client_secret: &str, scope: &str) -> GmailResult<String> {
+fn make_token_request(_client_id: &str, _client_secret: &str, scope: &str) -> GmailResult<String> {
     // Validate scope
     if !is_valid_scope(scope) {
         return Err(GmailApiError::AuthError(

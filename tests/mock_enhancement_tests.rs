@@ -3,9 +3,7 @@
 /// This module contains tests for enhanced mock implementations,
 /// focusing on delay simulation, error injection, and validation.
 use mcp_gmailcal::errors::{GmailApiError, GmailResult};
-use mcp_gmailcal::utils::encode_base64_url_safe;
 use rand::Rng;
-use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -146,14 +144,14 @@ mod mock_enhancement_tests {
         mock.with_error_rate(0.5);
 
         // Make multiple calls
-        let mut success_count = 0;
+        let mut _success_count = 0;
         let mut error_count = 0;
         let iterations = 100;
 
         for i in 0..iterations {
             let result = mock.call(&format!("test_partial_error_{}", i)).await;
             if result.is_ok() {
-                success_count += 1;
+                _success_count += 1;
             } else {
                 error_count += 1;
             }

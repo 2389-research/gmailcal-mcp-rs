@@ -5,7 +5,6 @@
 use chrono::{DateTime, Duration, Utc};
 use mcp_gmailcal::calendar_api::{Attendee, CalendarEvent, EventOrganizer};
 use mcp_gmailcal::errors::CalendarApiError;
-use serde_json::json;
 use uuid::Uuid;
 
 // Define a helper struct for testing event validation

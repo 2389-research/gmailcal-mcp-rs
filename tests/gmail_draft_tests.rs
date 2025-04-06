@@ -5,7 +5,6 @@ use mcp_gmailcal::errors::GmailApiError;
 /// focusing on creation, validation, and API formatting.
 ///
 use mcp_gmailcal::gmail_api::DraftEmail;
-use serde_json::json;
 
 #[cfg(test)]
 mod draft_email_tests {
