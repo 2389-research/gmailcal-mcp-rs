@@ -1,29 +1,29 @@
 name: Benchmarks
 
 on:
-  push:
-    branches: [ main ]
+    push:
+        branches: [main]
 
 jobs:
-  benchmark:
-    name: Run Benchmarks
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-      
-      - name: Run benchmarks
-        run: cargo bench
-      
-      - name: Store benchmark results
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          tool: 'criterion'
-          output-file-path: ./target/criterion/benchmarks/report/index.html
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
+    benchmark:
+        name: Run Benchmarks
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Rust Cache
+              uses: Swatinem/rust-cache@v2
+
+            - name: Run benchmarks
+              run: cargo bench
+
+            - name: Store benchmark results
+              uses: benchmark-action/github-action-benchmark@v1
+              with:
+                  tool: "criterion"
+                  output-file-path: ./target/criterion/benchmarks/report/index.html
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  auto-push: true
