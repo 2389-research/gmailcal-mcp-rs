@@ -1,63 +1,63 @@
 name: Auto Tag
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'Cargo.toml'
-  # Allow manual triggering
-  workflow_dispatch:
-    inputs:
-      force_tag:
-        description: 'Force create tag even if version has not changed'
-        required: false
-        default: 'false'
-        type: boolean
+    push:
+        branches:
+            - main
+        paths:
+            - "Cargo.toml"
+    # Allow manual triggering
+    workflow_dispatch:
+        inputs:
+            force_tag:
+                description: "Force create tag even if version has not changed"
+                required: false
+                default: false
+                type: boolean
 
 permissions:
-  contents: write
+    contents: write
 
 jobs:
-  auto-tag:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      
-      - name: Get version from Cargo.toml
-        id: get_version
-        run: |
-          VERSION=$(grep -m1 'version =' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/g')
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_ENV
-          echo "Version found: $VERSION"
-      
-      - name: Check if tag exists
-        id: check_tag
-        run: |
-          if git tag -l "v${{ steps.get_version.outputs.VERSION }}" | grep -q "v${{ steps.get_version.outputs.VERSION }}"; then
-            echo "TAG_EXISTS=true" >> $GITHUB_OUTPUT
-            echo "tag_exists=true" >> $GITHUB_ENV
-            echo "Tag v${{ steps.get_version.outputs.VERSION }} already exists"
-          else
-            echo "TAG_EXISTS=false" >> $GITHUB_OUTPUT
-            echo "tag_exists=false" >> $GITHUB_ENV
-            echo "Tag v${{ steps.get_version.outputs.VERSION }} does not exist"
-          fi
-      
-      - name: Create new tag
-        if: env.tag_exists == 'false' || github.event.inputs.force_tag == 'true'
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git tag -a "v${{ steps.get_version.outputs.VERSION }}" -m "Release v${{ steps.get_version.outputs.VERSION }}"
-          git push origin "v${{ steps.get_version.outputs.VERSION }}"
-          echo "Created and pushed tag v${{ steps.get_version.outputs.VERSION }}"
-      
-      - name: Display next steps
-        run: |
-          echo "::notice::Tag v${{ steps.get_version.outputs.VERSION }} has been created. The release workflow should start automatically."
-          echo "::notice::If the release workflow doesn't start, please check the GitHub Actions tab for any issues."
+    auto-tag:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Get version from Cargo.toml
+              id: get_version
+              run: |
+                  VERSION=$(grep -m1 'version =' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/g')
+                  echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+                  echo "version=$VERSION" >> $GITHUB_ENV
+                  echo "Version found: $VERSION"
+
+            - name: Check if tag exists
+              id: check_tag
+              run: |
+                  if git tag -l "v${{ steps.get_version.outputs.VERSION }}" | grep -q "v${{ steps.get_version.outputs.VERSION }}"; then
+                    echo "TAG_EXISTS=true" >> $GITHUB_OUTPUT
+                    echo "tag_exists=true" >> $GITHUB_ENV
+                    echo "Tag v${{ steps.get_version.outputs.VERSION }} already exists"
+                  else
+                    echo "TAG_EXISTS=false" >> $GITHUB_OUTPUT
+                    echo "tag_exists=false" >> $GITHUB_ENV
+                    echo "Tag v${{ steps.get_version.outputs.VERSION }} does not exist"
+                  fi
+
+            - name: Create new tag
+              if: env.tag_exists == 'false' || github.event.inputs.force_tag == 'true'
+              run: |
+                  git config --local user.email "action@github.com"
+                  git config --local user.name "GitHub Action"
+                  git tag -a "v${{ steps.get_version.outputs.VERSION }}" -m "Release v${{ steps.get_version.outputs.VERSION }}"
+                  git push origin "v${{ steps.get_version.outputs.VERSION }}"
+                  echo "Created and pushed tag v${{ steps.get_version.outputs.VERSION }}"
+
+            - name: Display next steps
+              run: |
+                  echo "::notice::Tag v${{ steps.get_version.outputs.VERSION }} has been created. The release workflow should start automatically."
+                  echo "::notice::If the release workflow doesn't start, please check the GitHub Actions tab for any issues."
