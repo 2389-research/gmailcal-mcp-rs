@@ -85,7 +85,7 @@ For each module extraction:
   - Test email listing, searching, and retrieval
   - Verify analysis functions work correctly
 
-### Step 7: People API Client (`people_api.rs`)
+### ✅ Step 7: People API Client (`people_api.rs`) - COMPLETED
 - Extract all People API interaction, types, and methods
 - Update re-exports in lib.rs
 - Testing:
