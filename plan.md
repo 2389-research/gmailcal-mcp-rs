@@ -101,7 +101,7 @@ For each module extraction:
   - Test calendar event listing, retrieval, and creation
   - Verify date/time handling
 
-### Step 9: Prompt Templates (`prompts.rs`)
+### ✅ Step 9: Prompt Templates (`prompts.rs`) - COMPLETED
 - Extract all prompt templates and analysis helpers
 - Update re-exports in lib.rs
 - Testing:
