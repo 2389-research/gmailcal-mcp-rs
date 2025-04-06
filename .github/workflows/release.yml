@@ -138,5 +138,5 @@ jobs:
               uses: softprops/action-gh-release@v1
               with:
                   files: dist/${{ matrix.asset_name }}
-                  tag_name: ${{ github.ref_name }}
+                  tag_name: v${{ needs.release.outputs.version }}
                   token: ${{ github.token }}
