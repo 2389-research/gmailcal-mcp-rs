@@ -4,7 +4,7 @@ use mcp_gmailcal::config::Config;
 /// This module contains tests for the Gmail API token management functionality,
 /// focusing on token refresh, validation, and error handling.
 ///
-use mcp_gmailcal::gmail_api::TokenManager;
+use mcp_gmailcal::TokenManager;
 
 // Mock configuration for token testing
 fn mock_config() -> Config {

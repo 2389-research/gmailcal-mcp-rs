@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use log::{debug, error, info, LevelFilter};
 use mcp_attr::server::serve_stdio;
-use mcp_gmailcal::{auth, setup_logging, GmailServer};
+use mcp_gmailcal::{oauth, setup_logging, GmailServer};
 use std::env;
 
 #[derive(Parser)]
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Some(Commands::Auth) => {
             println!("Starting OAuth authentication flow...");
-            if let Err(e) = auth::run_oauth_flow().await {
+            if let Err(e) = oauth::run_oauth_flow().await {
                 eprintln!("Authentication failed: {}", e);
                 std::process::exit(1);
             }
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Test) => {
             println!("Testing Gmail credentials...");
-            match auth::test_credentials().await {
+            match oauth::test_credentials().await {
                 Ok(result) => {
                     println!("{}\n", result);
                     println!("✅ Credentials are valid and working!");
