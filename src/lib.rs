@@ -1,5 +1,7 @@
 pub mod auth;
 pub mod config;
+// ===== Module Declarations =====
+
 /**
  * Gmail MCP Server Implementation
  *
@@ -24,8 +26,6 @@ pub mod config;
  * for testing the MCP commands. Future improvements could include more
  * sophisticated mocking of the API endpoints and more comprehensive tests.
  */
-// ===== Module Declarations =====
-
 // Core functionality
 pub mod errors;
 pub mod logging;
