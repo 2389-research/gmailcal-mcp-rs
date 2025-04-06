@@ -23,10 +23,7 @@ use std::io::Write;
 /// # Returns
 ///
 /// The path to the log file or a description of the logging destination
-pub fn setup_logging(
-    log_level: LevelFilter,
-    log_file: Option<&str>,
-) -> std::io::Result<String> {
+pub fn setup_logging(log_level: LevelFilter, log_file: Option<&str>) -> std::io::Result<String> {
     // Use the default config for simplicity - explicitly use simplelog::Config to avoid ambiguity
     let log_config = simplelog::Config::default();
 

@@ -2,7 +2,6 @@
 ///
 /// This module contains tests for the Calendar Event validation functionality,
 /// focusing on validation of various edge cases and invalid inputs.
-
 use chrono::{DateTime, Duration, Utc};
 use mcp_gmailcal::calendar_api::{Attendee, CalendarEvent, EventOrganizer};
 use mcp_gmailcal::errors::CalendarApiError;
@@ -161,16 +160,19 @@ mod calendar_validation_tests {
     fn test_timezone_conversion() {
         // Create events with different timezones
         let utc_event = create_test_event();
-        
+
         // The event times should be in UTC
-        assert_eq!(utc_event.start_time.to_rfc3339(), "2025-05-15T10:00:00+00:00");
+        assert_eq!(
+            utc_event.start_time.to_rfc3339(),
+            "2025-05-15T10:00:00+00:00"
+        );
         assert_eq!(utc_event.end_time.to_rfc3339(), "2025-05-15T11:00:00+00:00");
-        
+
         // Test conversion from different timezone
         let ny_time = DateTime::parse_from_rfc3339("2025-05-15T06:00:00-04:00")
             .unwrap()
             .with_timezone(&Utc);
-            
+
         // After conversion to UTC, it should be 10:00 UTC
         assert_eq!(ny_time.to_rfc3339(), "2025-05-15T10:00:00+00:00");
     }
@@ -191,14 +193,14 @@ mod calendar_validation_tests {
     fn test_recurring_event_validation() {
         // In a real implementation, we would have a recurrence field
         // For this test, we'll just verify that a normal event passes validation
-        
+
         let event = create_test_event();
-        
+
         // We would add recurrence rules here if the struct had that field
-        
+
         // Validate the event
         let result = EventValidator::validate_event(&event);
-        
+
         // Verify validation passes
         assert!(result.is_ok());
     }

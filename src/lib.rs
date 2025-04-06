@@ -1,3 +1,5 @@
+pub mod auth;
+pub mod config;
 /**
  * Gmail MCP Server Implementation
  *
@@ -22,36 +24,33 @@
  * for testing the MCP commands. Future improvements could include more
  * sophisticated mocking of the API endpoints and more comprehensive tests.
  */
-
 // ===== Module Declarations =====
 
 // Core functionality
 pub mod errors;
-pub mod config;
 pub mod logging;
 pub mod utils;
-pub mod auth;
 
 // API clients
+pub mod calendar_api;
 pub mod gmail_api;
 pub mod people_api;
-pub mod calendar_api;
 
 // Server implementation
-pub mod server;
-pub mod prompts;
 pub mod oauth;
+pub mod prompts;
+pub mod server;
 
 // ===== Re-exports =====
 
 // Error handling and results
 pub use crate::errors::{
-    ConfigError, GmailApiError, PeopleApiError, CalendarApiError,
-    GmailResult, PeopleResult, CalendarResult, error_codes
+    error_codes, CalendarApiError, CalendarResult, ConfigError, GmailApiError, GmailResult,
+    PeopleApiError, PeopleResult,
 };
 
 // Configuration and constants
-pub use crate::config::{Config, GMAIL_API_BASE_URL, OAUTH_TOKEN_URL, get_token_expiry_seconds};
+pub use crate::config::{get_token_expiry_seconds, Config, GMAIL_API_BASE_URL, OAUTH_TOKEN_URL};
 
 // Logging setup
 pub use crate::logging::setup_logging;
@@ -60,25 +59,24 @@ pub use crate::logging::setup_logging;
 pub use crate::auth::TokenManager;
 
 // Gmail API types
-pub use crate::gmail_api::{EmailMessage, DraftEmail, GmailService};
+pub use crate::gmail_api::{DraftEmail, EmailMessage, GmailService};
 
 // People API types
 pub use crate::people_api::{
-    Contact, EmailAddress, Organization, PeopleClient, 
-    PersonName, PhoneNumber, Photo, ContactList
+    Contact, ContactList, EmailAddress, Organization, PeopleClient, PersonName, PhoneNumber, Photo,
 };
 
 // Calendar API types
 pub use crate::calendar_api::{
-    CalendarClient, CalendarEvent, CalendarList, CalendarInfo,
-    Attendee, EventOrganizer, ConferenceData, ConferenceSolution, EntryPoint
+    Attendee, CalendarClient, CalendarEvent, CalendarInfo, CalendarList, ConferenceData,
+    ConferenceSolution, EntryPoint, EventOrganizer,
 };
 
 // Utils and prompts
 pub use crate::prompts::*;
 pub use crate::utils::{
-    parse_max_results, decode_base64, encode_base64_url_safe, 
-    to_mcp_error, map_gmail_error, error_codes as utils_error_codes
+    decode_base64, encode_base64_url_safe, error_codes as utils_error_codes, map_gmail_error,
+    parse_max_results, to_mcp_error,
 };
 
 // Server implementation

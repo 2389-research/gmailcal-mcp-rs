@@ -1,7 +1,7 @@
 use crate::errors::GmailApiError;
 use base64;
 use log::{debug, error};
-use mcp_attr::{Error as McpError, jsoncall::ErrorCode};
+use mcp_attr::{jsoncall::ErrorCode, Error as McpError};
 use serde_json;
 
 // Error code constants for MCP errors
@@ -72,7 +72,10 @@ pub fn parse_max_results(value: Option<serde_json::Value>, default: u32) -> u32 
                     match s.parse::<u32>() {
                         Ok(n) => n,
                         Err(_) => {
-                            debug!("String \"{}\" not convertible to u32, using default {}", s, default);
+                            debug!(
+                                "String \"{}\" not convertible to u32, using default {}",
+                                s, default
+                            );
                             default
                         }
                     }
@@ -89,9 +92,8 @@ pub fn parse_max_results(value: Option<serde_json::Value>, default: u32) -> u32 
 
 /// Decode a base64 encoded string
 pub fn decode_base64(data: &str) -> Result<String, String> {
-    let bytes = base64::decode(data)
-        .map_err(|e| format!("Error decoding base64: {}", e))?;
-    
+    let bytes = base64::decode(data).map_err(|e| format!("Error decoding base64: {}", e))?;
+
     String::from_utf8(bytes).map_err(|e| format!("Error converting base64 to string: {}", e))
 }
 
@@ -111,7 +113,8 @@ pub fn to_mcp_error(message: &str, code: u32) -> McpError {
     let steps = get_troubleshooting_steps(code);
 
     // Create a detailed error message with multiple parts
-    let detailed_error = format!(
+    let detailed_error =
+        format!(
         "ERROR CODE {}: {}\n\nDETAILS: {}\n\nTROUBLESHOOTING: {}\n\nSERVER MESSAGE: {}", 
         code, description, message, steps,
         "If the problem persists, contact the server administrator and reference this error code."
@@ -145,10 +148,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                         e
                     )
                 )
-            } else if e.contains("network")
-                || e.contains("connection")
-                || e.contains("timeout")
-            {
+            } else if e.contains("network") || e.contains("connection") || e.contains("timeout") {
                 (
                     error_codes::API_ERROR,
                     format!(
@@ -158,10 +158,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                         e
                     )
                 )
-            } else if e.contains("authentication")
-                || e.contains("auth")
-                || e.contains("token")
-            {
+            } else if e.contains("authentication") || e.contains("auth") || e.contains("token") {
                 (
                     error_codes::AUTH_ERROR,
                     format!(
@@ -171,10 +168,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                         e
                     )
                 )
-            } else if e.contains("format")
-                || e.contains("missing field")
-                || e.contains("parse")
-            {
+            } else if e.contains("format") || e.contains("missing field") || e.contains("parse") {
                 (
                     error_codes::MESSAGE_FORMAT_ERROR,
                     format!(

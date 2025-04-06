@@ -1,5 +1,5 @@
-use crate::config::Config;
 use crate::auth::TokenManager;
+use crate::config::Config;
 use crate::config::GMAIL_API_BASE_URL;
 use crate::errors::{GmailApiError, GmailResult};
 use log::{debug, error, info};
@@ -318,9 +318,7 @@ impl GmailService {
         let thread_id = parsed["threadId"]
             .as_str()
             .ok_or_else(|| {
-                GmailApiError::MessageFormatError(
-                    "Message missing 'threadId' field".to_string(),
-                )
+                GmailApiError::MessageFormatError("Message missing 'threadId' field".to_string())
             })?
             .to_string();
 
@@ -444,9 +442,7 @@ impl GmailService {
 
         // Extract messages array
         let messages = parsed["messages"].as_array().ok_or_else(|| {
-            GmailApiError::MessageFormatError(
-                "Missing 'messages' array in response".to_string(),
-            )
+            GmailApiError::MessageFormatError("Missing 'messages' array in response".to_string())
         })?;
 
         // Create EmailMessage structs by fetching details for each message ID
@@ -622,19 +618,14 @@ impl GmailService {
         let response_json: serde_json::Value =
             serde_json::from_str(&response_text).map_err(|e| {
                 error!("Failed to parse draft response: {}", e);
-                GmailApiError::MessageFormatError(format!(
-                    "Failed to parse draft response: {}",
-                    e
-                ))
+                GmailApiError::MessageFormatError(format!("Failed to parse draft response: {}", e))
             })?;
 
         // Extract the draft ID
         let draft_id = response_json["id"]
             .as_str()
             .ok_or_else(|| {
-                GmailApiError::MessageFormatError(
-                    "Draft response missing 'id' field".to_string(),
-                )
+                GmailApiError::MessageFormatError("Draft response missing 'id' field".to_string())
             })?
             .to_string();
 

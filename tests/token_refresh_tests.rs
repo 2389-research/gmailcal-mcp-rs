@@ -2,7 +2,6 @@
 ///
 /// This module contains tests for the OAuth token refresh functionality,
 /// focusing on error conditions and edge cases.
-
 use mcp_gmailcal::auth::TokenManager;
 use mcp_gmailcal::config::Config;
 use mcp_gmailcal::errors::GmailApiError;
@@ -33,12 +32,10 @@ fn mock_config_with_token() -> Config {
 async fn test_token_manager_creation() {
     // Create a token manager with no initial token
     let mut token_manager = TokenManager::new(&mock_config());
-    
+
     // Create a client
-    let client = Client::builder()
-        .build()
-        .unwrap();
-    
+    let client = Client::builder().build().unwrap();
+
     // We can't test actual token refresh without mocking the HTTP client
     // which would require significant changes to the code
     // For now, we'll just verify that the token manager is created correctly
@@ -49,12 +46,10 @@ async fn test_token_manager_creation() {
 async fn test_token_manager_with_token() {
     // Create a token manager with an initial token
     let mut token_manager = TokenManager::new(&mock_config_with_token());
-    
+
     // Create a client
-    let client = Client::builder()
-        .build()
-        .unwrap();
-    
+    let client = Client::builder().build().unwrap();
+
     // Verify the token manager can be created with an initial token
     // Note: we can't directly access the token, but we can test the behavior
     assert!(token_manager.get_token(&client).await.is_ok());
@@ -64,7 +59,7 @@ async fn test_token_manager_with_token() {
 async fn test_token_refresh_scenarios() {
     // Describe the token refresh scenarios we would test
     // when we have the ability to mock HTTP responses
-    
+
     println!("Token refresh tests would verify:");
     println!("1. Refresh when token is expired");
     println!("2. Handling network failures during refresh");

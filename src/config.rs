@@ -1,7 +1,7 @@
+use crate::errors::ConfigError;
 use dotenv::dotenv;
 use log::debug;
 use std::env;
-use crate::errors::ConfigError;
 
 #[derive(Debug, Clone)]
 pub struct Config {

@@ -143,9 +143,7 @@ impl CalendarClient {
                 let id = item
                     .get("id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        CalendarApiError::ParseError("Missing calendar id".to_string())
-                    })?
+                    .ok_or_else(|| CalendarApiError::ParseError("Missing calendar id".to_string()))?
                     .to_string();
 
                 let summary = item
@@ -350,8 +348,7 @@ impl CalendarClient {
                     }
 
                     if let Some(optional) = a.optional {
-                        attendee
-                            .insert("optional".to_string(), serde_json::Value::Bool(optional));
+                        attendee.insert("optional".to_string(), serde_json::Value::Bool(optional));
                     }
 
                     serde_json::Value::Object(attendee)
@@ -522,8 +519,7 @@ impl CalendarClient {
         let conference_data = if let Some(conf_data) = item.get("conferenceData") {
             let mut entry_points = Vec::new();
 
-            if let Some(entry_point_list) =
-                conf_data.get("entryPoints").and_then(|v| v.as_array())
+            if let Some(entry_point_list) = conf_data.get("entryPoints").and_then(|v| v.as_array())
             {
                 for entry_point in entry_point_list {
                     if let (Some(entry_type), Some(uri)) = (

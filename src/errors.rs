@@ -1,6 +1,6 @@
-use thiserror::Error;
-use std::env;
 use reqwest;
+use std::env;
+use thiserror::Error;
 
 /// Error type for configuration issues
 #[derive(Debug, Error)]
@@ -79,7 +79,7 @@ pub enum CalendarApiError {
 
     #[error("Rate limit error: {0}")]
     RateLimitError(String),
-    
+
     #[error("Parse error: {0}")]
     ParseError(String),
 }
@@ -96,17 +96,17 @@ pub mod error_codes {
     pub const INVALID_REQUEST: &str = "invalid_request";
     pub const RATE_LIMIT_ERROR: &str = "rate_limit_error";
     pub const CONFIG_ERROR: &str = "config_error";
-    
+
     // Gmail specific errors
     pub const MESSAGE_NOT_FOUND: &str = "message_not_found";
     pub const DRAFT_NOT_FOUND: &str = "draft_not_found";
     pub const MESSAGE_FORMAT_ERROR: &str = "message_format_error";
-    
+
     // Calendar specific errors
     pub const CALENDAR_NOT_FOUND: &str = "calendar_not_found";
     pub const EVENT_NOT_FOUND: &str = "event_not_found";
     pub const EVENT_FORMAT_ERROR: &str = "event_format_error";
-    
+
     // People API specific errors
     pub const CONTACT_NOT_FOUND: &str = "contact_not_found";
 }

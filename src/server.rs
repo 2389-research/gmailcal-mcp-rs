@@ -5,8 +5,8 @@ use serde_json::json;
 
 use crate::config::Config;
 use crate::errors::ConfigError;
-use crate::gmail_api::GmailService;
 use crate::errors::GmailApiError;
+use crate::gmail_api::GmailService;
 use crate::utils::error_codes;
 
 // Helper functions
@@ -33,9 +33,7 @@ impl GmailServer {
     }
 
     // Private method to initialize the Calendar service
-    async fn init_calendar_service(
-        &self,
-    ) -> Result<crate::calendar_api::CalendarClient, McpError> {
+    async fn init_calendar_service(&self) -> Result<crate::calendar_api::CalendarClient, McpError> {
         // Load the config
         let config = Config::from_env().map_err(|e| {
             error!("Failed to load OAuth configuration: {}", e);
@@ -242,7 +240,8 @@ impl McpServer for GmailServer {
                 );
 
                 // Create detailed contextual error
-                error!("Context: Failed to list emails with parameters: max_results={}, query='{}'", 
+                error!(
+                    "Context: Failed to list emails with parameters: max_results={}, query='{}'",
                     max, query_info
                 );
 
@@ -786,11 +785,7 @@ impl McpServer for GmailServer {
     ///
     /// A JSON string containing the matching contacts
     #[tool]
-    async fn search_contacts(
-        &self,
-        query: String,
-        max_results: Option<u32>,
-    ) -> McpResult<String> {
+    async fn search_contacts(&self, query: String, max_results: Option<u32>) -> McpResult<String> {
         info!("=== START search_contacts MCP command ===");
         debug!(
             "search_contacts called with query=\"{}\" and max_results={:?}",
@@ -804,8 +799,7 @@ impl McpServer for GmailServer {
             Ok(contacts) => {
                 // Convert to JSON
                 serde_json::to_string(&contacts).map_err(|e| {
-                    let error_msg =
-                        format!("Failed to serialize contact search results: {}", e);
+                    let error_msg = format!("Failed to serialize contact search results: {}", e);
                     error!("{}", error_msg);
                     self.to_mcp_error(&error_msg, error_codes::GENERAL_ERROR)
                 })
@@ -932,8 +926,7 @@ impl McpServer for GmailServer {
             match chrono::DateTime::parse_from_rfc3339(&t) {
                 Ok(dt) => Some(dt.with_timezone(&chrono::Utc)),
                 Err(e) => {
-                    let error_msg =
-                        format!("Invalid time_min format (expected RFC3339): {}", e);
+                    let error_msg = format!("Invalid time_min format (expected RFC3339): {}", e);
                     error!("{}", error_msg);
                     return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
                 }
@@ -946,8 +939,7 @@ impl McpServer for GmailServer {
             match chrono::DateTime::parse_from_rfc3339(&t) {
                 Ok(dt) => Some(dt.with_timezone(&chrono::Utc)),
                 Err(e) => {
-                    let error_msg =
-                        format!("Invalid time_max format (expected RFC3339): {}", e);
+                    let error_msg = format!("Invalid time_max format (expected RFC3339): {}", e);
                     error!("{}", error_msg);
                     return Err(self.to_mcp_error(&error_msg, error_codes::API_ERROR));
                 }
@@ -1001,11 +993,7 @@ impl McpServer for GmailServer {
     ///
     /// A JSON string containing the event details
     #[tool]
-    async fn get_event(
-        &self,
-        calendar_id: Option<String>,
-        event_id: String,
-    ) -> McpResult<String> {
+    async fn get_event(&self, calendar_id: Option<String>, event_id: String) -> McpResult<String> {
         info!("=== START get_event MCP command ===");
         debug!(
             "get_event called with calendar_id={:?}, event_id={}",

@@ -539,8 +539,7 @@ fn generate_claude_desktop_config(
 // Utility to test the saved credentials
 pub async fn test_credentials() -> Result<String, String> {
     // Load the config from environment
-    let config =
-        Config::from_env().map_err(|e| format!("Failed to load credentials: {}", e))?;
+    let config = Config::from_env().map_err(|e| format!("Failed to load credentials: {}", e))?;
 
     // Create a Gmail service client
     let mut service = crate::gmail_api::GmailService::new(&config)

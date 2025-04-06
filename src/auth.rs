@@ -1,4 +1,4 @@
-use crate::config::{Config, OAUTH_TOKEN_URL, get_token_expiry_seconds};
+use crate::config::{get_token_expiry_seconds, Config, OAUTH_TOKEN_URL};
 use crate::errors::{GmailApiError, GmailResult};
 use log::{debug, error};
 use reqwest::Client;
@@ -113,9 +113,10 @@ impl TokenManager {
             )));
         }
 
-        let response_text = response.text().await.map_err(|e| {
-            GmailApiError::ApiError(format!("Failed to get token response: {}", e))
-        })?;
+        let response_text = response
+            .text()
+            .await
+            .map_err(|e| GmailApiError::ApiError(format!("Failed to get token response: {}", e)))?;
 
         debug!("Token response received, parsing JSON");
 
