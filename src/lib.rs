@@ -37,6 +37,7 @@ pub mod gmail_api;
 pub mod people_api;
 
 // Server implementation
+pub mod cli;
 pub mod oauth;
 pub mod prompts;
 pub mod server;
