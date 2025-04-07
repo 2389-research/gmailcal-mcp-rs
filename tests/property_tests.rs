@@ -6,7 +6,12 @@
 use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
 use mcp_gmailcal::gmail_api::{DraftEmail, EmailMessage};
 use mcp_gmailcal::calendar_api::{Attendee, CalendarEvent};
-use mcp_gmailcal::utils::{decode_base64, encode_base64_url_safe, parse_max_results};
+use mcp_gmailcal::errors::GmailApiError;
+use mcp_gmailcal::utils::{
+    decode_base64, encode_base64_url_safe, map_gmail_error, parse_max_results, to_mcp_error,
+    error_codes::{get_error_description, get_troubleshooting_steps},
+    error_codes::{AUTH_ERROR, API_ERROR, CONFIG_ERROR, MESSAGE_FORMAT_ERROR, GENERAL_ERROR}
+};
 use proptest::prelude::*;
 use serde_json::{self, json, Value};
 use std::collections::HashSet;
@@ -467,4 +472,131 @@ fn test_datetime_parsing_edge_cases() {
     
     // This should be 5 hours earlier in UTC
     assert_eq!(utc.hour(), 5);
+}
+
+/// Generate arbitrary error messages
+fn error_message_strategy() -> impl Strategy<Value = String> {
+    prop::string::string_regex("[a-zA-Z0-9 ]{0,50}").unwrap()
+}
+
+// Add additional property tests for utils module
+proptest! {
+    // Test that error codes always have descriptions and troubleshooting steps
+    #[test]
+    fn test_error_descriptions_for_all_codes(code in 0u32..10000u32) {
+        // Every code should return a description
+        let desc = get_error_description(code);
+        prop_assert!(!desc.is_empty());
+        
+        // Every code should return troubleshooting steps
+        let steps = get_troubleshooting_steps(code);
+        prop_assert!(!steps.is_empty());
+    }
+
+    // Test to_mcp_error with arbitrary inputs
+    #[test]
+    fn test_to_mcp_error_with_arbitrary_inputs(message in error_message_strategy(), code in 1000u32..1010u32) {
+        // The to_mcp_error function should work with any message and code
+        let error = to_mcp_error(&message, code);
+        // Check that the error was created (we can't check much else since we can't access the internals)
+        let debug_str = format!("{:?}", error);
+        prop_assert!(debug_str.contains(&code.to_string()));
+    }
+
+    // Test map_gmail_error with arbitrary inputs
+    #[test]
+    fn test_map_gmail_error_with_arbitrary_inputs(message in error_message_strategy()) {
+        // Test all enum variants with arbitrary messages
+        let api_error = map_gmail_error(GmailApiError::ApiError(message.clone()));
+        let debug_str = format!("{:?}", api_error);
+        
+        let auth_error = map_gmail_error(GmailApiError::AuthError(message.clone()));
+        let debug_str2 = format!("{:?}", auth_error);
+        
+        let retrieval_error = map_gmail_error(GmailApiError::MessageRetrievalError(message.clone()));
+        let debug_str3 = format!("{:?}", retrieval_error);
+        
+        let format_error = map_gmail_error(GmailApiError::MessageFormatError(message.clone()));
+        let debug_str4 = format!("{:?}", format_error);
+        
+        let network_error = map_gmail_error(GmailApiError::NetworkError(message.clone()));
+        let debug_str5 = format!("{:?}", network_error);
+        
+        let rate_limit_error = map_gmail_error(GmailApiError::RateLimitError(message.clone()));
+        let debug_str6 = format!("{:?}", rate_limit_error);
+        
+        // Make sure all errors are mapped to some error code
+        prop_assert!(debug_str.contains(&API_ERROR.to_string()) 
+            || debug_str.contains(&AUTH_ERROR.to_string()) 
+            || debug_str.contains(&MESSAGE_FORMAT_ERROR.to_string()));
+            
+        prop_assert!(debug_str2.contains(&AUTH_ERROR.to_string()));
+        prop_assert!(debug_str3.contains(&API_ERROR.to_string()));
+        prop_assert!(debug_str4.contains(&MESSAGE_FORMAT_ERROR.to_string()));
+        prop_assert!(debug_str5.contains(&API_ERROR.to_string()));
+        prop_assert!(debug_str6.contains(&API_ERROR.to_string()));
+    }
+
+    // Test the ApiError message classification
+    #[test]
+    fn test_api_error_message_classification(message in error_message_strategy()) {
+        // Test different keywords in the message to ensure classification works
+        let error1 = map_gmail_error(GmailApiError::ApiError(format!("quota {}", message)));
+        let debug_str1 = format!("{:?}", error1);
+        
+        let error2 = map_gmail_error(GmailApiError::ApiError(format!("rate {}", message)));
+        let debug_str2 = format!("{:?}", error2);
+        
+        let error3 = map_gmail_error(GmailApiError::ApiError(format!("limit {}", message)));
+        let debug_str3 = format!("{:?}", error3);
+        
+        let error4 = map_gmail_error(GmailApiError::ApiError(format!("network {}", message)));
+        let debug_str4 = format!("{:?}", error4);
+        
+        let error5 = map_gmail_error(GmailApiError::ApiError(format!("connection {}", message)));
+        let debug_str5 = format!("{:?}", error5);
+        
+        let error6 = map_gmail_error(GmailApiError::ApiError(format!("timeout {}", message)));
+        let debug_str6 = format!("{:?}", error6);
+        
+        let error7 = map_gmail_error(GmailApiError::ApiError(format!("authentication {}", message)));
+        let debug_str7 = format!("{:?}", error7);
+        
+        let error8 = map_gmail_error(GmailApiError::ApiError(format!("auth {}", message)));
+        let debug_str8 = format!("{:?}", error8);
+        
+        let error9 = map_gmail_error(GmailApiError::ApiError(format!("token {}", message)));
+        let debug_str9 = format!("{:?}", error9);
+        
+        let error10 = map_gmail_error(GmailApiError::ApiError(format!("format {}", message)));
+        let debug_str10 = format!("{:?}", error10);
+        
+        let error11 = map_gmail_error(GmailApiError::ApiError(format!("missing field {}", message)));
+        let debug_str11 = format!("{:?}", error11);
+        
+        let error12 = map_gmail_error(GmailApiError::ApiError(format!("parse {}", message)));
+        let debug_str12 = format!("{:?}", error12);
+        
+        let error13 = map_gmail_error(GmailApiError::ApiError(format!("not found {}", message)));
+        let debug_str13 = format!("{:?}", error13);
+        
+        let error14 = map_gmail_error(GmailApiError::ApiError(format!("404 {}", message)));
+        let debug_str14 = format!("{:?}", error14);
+        
+        // Verify the error code mappings
+        prop_assert!(debug_str1.contains(&API_ERROR.to_string()));
+        prop_assert!(debug_str2.contains(&API_ERROR.to_string()));
+        prop_assert!(debug_str3.contains(&API_ERROR.to_string()));
+        prop_assert!(debug_str4.contains(&API_ERROR.to_string()));
+        prop_assert!(debug_str5.contains(&API_ERROR.to_string()));
+        prop_assert!(debug_str6.contains(&API_ERROR.to_string()));
+        prop_assert!(debug_str7.contains(&AUTH_ERROR.to_string()));
+        prop_assert!(debug_str8.contains(&AUTH_ERROR.to_string()));
+        prop_assert!(debug_str9.contains(&AUTH_ERROR.to_string()));
+        prop_assert!(debug_str10.contains(&MESSAGE_FORMAT_ERROR.to_string()));
+        prop_assert!(debug_str11.contains(&MESSAGE_FORMAT_ERROR.to_string()));
+        prop_assert!(debug_str12.contains(&MESSAGE_FORMAT_ERROR.to_string()));
+        prop_assert!(debug_str13.contains(&API_ERROR.to_string()));
+        prop_assert!(debug_str14.contains(&API_ERROR.to_string()));
+    }
 }
