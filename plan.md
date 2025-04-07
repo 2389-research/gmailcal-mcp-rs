@@ -1,0 +1,266 @@
+# Comprehensive Code Coverage Implementation Plan
+
+## Executive Summary
+
+This document outlines our strategy to systematically improve code coverage from the current 2.32% to 100%. The plan divides work into phases with clear milestones, utilizing a combination of unit tests, integration tests, and property-based testing. We'll leverage Rust's testing ecosystem with tools like `cargo-tarpaulin` for coverage reporting and `mockall` for mocking.
+
+## Phase 1: Infrastructure & Baseline (Weeks 1-2) - ✅ COMPLETE
+
+### 1.1 Testing Infrastructure Setup - ✅ COMPLETE
+- **Action Items:**
+  - ✅ Configure GitHub Actions to run coverage reports in CI
+    - *Found workflows: coverage.yml and coverage-pr.yml*
+  - ✅ Set up tarpaulin reports with artifact storage
+    - *Tarpaulin reports configured, artifact storage implemented*
+  - ✅ Integrate coverage reports into PR comments
+    - *PR comments implemented in coverage-pr.yml*
+  - ✅ Create comprehensive mock framework for external APIs
+    - *Basic mock framework implemented in mock_client.rs and enhanced in mock_enhancement_tests.rs*
+- **Tools & Approach:**
+  - ✅ Use `cargo-tarpaulin` for coverage
+    - *Implemented in CI workflows*
+  - ✅ Implement `mockall` for mock objects
+    - *Found mockall implementation in mock_client.rs*
+  - ✅ Create builder patterns for test fixtures
+    - *Test fixtures and builder pattern found in mock_client.rs*
+- **Measurable Outcomes:**
+  - ✅ PR check that shows coverage diff
+  - ✅ Baseline report showing current coverage
+  - ✅ Documentation for mocking patterns
+
+### 1.2 Standard Testing Patterns - ✅ COMPLETE
+- **Action Items:**
+  - ✅ Develop shared testing utilities
+    - *Created helper.rs with shared utilities for tests*
+  - ✅ Create standard fixtures for commonly tested components
+    - *Found in mock_client.rs: test emails, labels and others*
+  - ✅ Define testing standards document
+    - *Created TESTING_STANDARDS.md in tests directory*
+  - ✅ Implement parameterized test helpers
+    - *Added parameterized test helpers and examples in parameterized_test_example.rs*
+- **Tools & Approach:**
+  - ✅ Create helper macros for common test patterns
+    - *Added test_macros.rs with helper macros for common test patterns*
+  - ✅ Implement reusable fixtures using Rust's testing ecosystem
+    - *Completed implementation in helper.rs, mock_client.rs with comprehensive examples*
+- **Measurable Outcomes:**
+  - ✅ Testing utilities committed to codebase
+  - ✅ Documentation for test patterns and best practices
+
+## Phase 2: Core Module Testing (Weeks 3-5)
+
+### 2.1 Auth Module Enhancement
+- **Current Coverage:** 47.22%
+- **Action Items:**
+  - Complete token refresh error scenario tests
+  - Implement expired token edge cases
+  - Test concurrent access patterns
+- **Testing Strategies:**
+  - Use parameterized tests for different error conditions
+  - Implement time-based tests with mock time
+  - Use sync primitives testing
+- **Success Metrics:**
+  - 100% line coverage for auth.rs
+  - All error paths verified
+  - Thread safety verified with stress tests
+
+### 2.2 Config Module Testing
+- **Current Coverage:** 15.79%
+- **Action Items:**
+  - Test Config::from_env with varied environments
+  - Test missing/malformed environment variables
+  - Test token expiry logic
+- **Testing Strategies:**
+  - Use environment variable mocking
+  - Implement property testing for config permutations
+- **Success Metrics:**
+  - 100% line coverage for config.rs
+  - All error conditions verified
+
+### 2.3 Utils Module Testing
+- **Current Coverage:** 3.45%
+- **Action Items:**
+  - Test all error mapping functions
+  - Test base64 encoding/decoding with edge cases
+  - Test parsing functions with various inputs
+- **Testing Strategies:**
+  - Implement property-based testing for encoders/decoders
+  - Use table-driven tests for error mapping verification
+- **Success Metrics:**
+  - 100% line coverage for utils.rs
+  - Property tests verifying invariants
+
+## Phase 3: API Module Testing (Weeks 6-10)
+
+### 3.1 Calendar API Testing
+- **Current Coverage:** 0%
+- **Action Items:**
+  - Create comprehensive API response mocks
+  - Test event CRUD operations
+  - Test date/time handling
+  - Test API error scenarios
+- **Testing Strategies:**
+  - Use recorded API interactions as test fixtures
+  - Implement exhaustive state testing
+- **Success Metrics:**
+  - 100% line coverage for calendar_api.rs
+  - All API endpoints verified
+
+### 3.2 Gmail API Testing
+- **Current Coverage:** 0%
+- **Action Items:**
+  - Create mock responses for all Gmail operations
+  - Test email parsing with diverse formats
+  - Test MIME message generation
+  - Test draft email creation and sending
+- **Testing Strategies:**
+  - Use real-world email samples (anonymized)
+  - Test edge cases in email structure
+- **Success Metrics:**
+  - 100% line coverage for gmail_api.rs
+  - Verified handling of malformed emails
+
+### 3.3 People API Testing
+- **Current Coverage:** 0%
+- **Action Items:**
+  - Create mock responses for contact operations
+  - Test contact fetching and formatting
+  - Test error handling paths
+- **Testing Strategies:**
+  - Use diverse contact data models for testing
+  - Test international formatting
+- **Success Metrics:**
+  - 100% line coverage for people_api.rs
+  - Verified handling of contact edge cases
+
+## Phase 4: Core Infrastructure Testing (Weeks 11-12)
+
+### 4.1 Logging Module Testing
+- **Current Coverage:** 0%
+- **Action Items:**
+  - Test logging initialization
+  - Test log level filtering
+  - Test file logging vs. memory logging
+  - Test format customization
+- **Testing Strategies:**
+  - Mock file system for logging tests
+  - Test output capture and verification
+- **Success Metrics:**
+  - 100% line coverage for logging.rs
+  - Verified error handling
+
+### 4.2 Error Handling Testing
+- **Current Coverage:** 0%
+- **Action Items:**
+  - Test all error types
+  - Test error conversion
+  - Test error formatting
+  - Test error code mapping
+- **Testing Strategies:**
+  - Use exhaustive enumeration testing
+  - Verify internationalization aspects
+- **Success Metrics:**
+  - 100% line coverage for errors.rs
+  - All error paths verified
+
+## Phase 5: Server & Integration Testing (Weeks 13-16)
+
+### 5.1 Server Testing
+- **Current Coverage:** 0.22%
+- **Action Items:**
+  - Test command parsing and routing
+  - Test all MCP commands
+  - Test server initialization/shutdown
+  - Test error handling in responses
+- **Testing Strategies:**
+  - Use request/response pair testing
+  - Implement state verification for server
+- **Success Metrics:**
+  - 100% line coverage for server.rs
+  - All command paths verified
+
+### 5.2 Integration Testing
+- **Action Items:**
+  - Implement email workflow testing
+  - Create calendar operation integration tests
+  - Test contact workflows
+  - Test authentication flows
+  - Test error recovery
+- **Testing Strategies:**
+  - Use recorded interaction sequences
+  - Test complete user journeys
+- **Success Metrics:**
+  - All main workflows have end-to-end tests
+  - Error recovery paths verified
+
+### 5.3 Main Function Testing
+- **Current Coverage:** 0%
+- **Action Items:**
+  - Test argument parsing
+  - Test environment detection
+  - Test server startup
+  - Test initialization failure handling
+- **Testing Strategies:**
+  - Mock command line arguments
+  - Test environment variable handling
+- **Success Metrics:**
+  - 100% line coverage for main.rs
+  - All startup paths verified
+
+## Phase 6: Advanced Testing Techniques (Weeks 17-18)
+
+### 6.1 Property-Based Testing
+- **Action Items:**
+  - Implement testing for encoding/decoding functions
+  - Test date/time operations
+  - Test JSON serialization/deserialization
+  - Test email format conversion
+- **Testing Strategies:**
+  - Use proptest or quickcheck crates
+  - Generate diverse test cases automatically
+- **Success Metrics:**
+  - Critical invariants verified
+  - Edge cases discovered and fixed
+
+### 6.2 Performance Benchmarking
+- **Action Items:**
+  - Benchmark email parsing
+  - Benchmark API request handling
+  - Benchmark token operations
+  - Benchmark search operations
+- **Testing Strategies:**
+  - Use Criterion.rs for benchmarks
+  - Establish performance baselines
+- **Success Metrics:**
+  - Benchmarks integrated into CI
+  - Performance metrics documented
+
+## Implementation Timeline
+
+| Week | Primary Focus | Target Coverage |
+|------|--------------|----------------|
+| 1-2  | Infrastructure | 5% |
+| 3-5  | Core Modules | 20% |
+| 6-10 | API Modules | 50% |
+| 11-12 | Infrastructure Modules | 65% |
+| 13-16 | Server & Integration | 85% |
+| 17-18 | Advanced Techniques | 100% |
+
+## Resource Allocation
+
+- **Testing Framework Development:** 1 engineer (Weeks 1-2)
+- **Core & API Module Testing:** 2 engineers (Weeks 3-12)
+- **Integration & Advanced Testing:** 2 engineers (Weeks 13-18)
+
+## Risk Management
+
+| Risk | Mitigation |
+|------|------------|
+| External API dependencies | Comprehensive mocking framework |
+| Complex async patterns | Specialized async testing helpers |
+| Unreproducible bugs | Thorough logging in tests |
+| Test maintenance burden | Strong test organization patterns |
+
+## Conclusion
+
+This plan provides a systematic approach to achieving 100% code coverage while improving overall code quality. By following this phased approach with clear milestones, we can methodically improve test coverage while building a robust testing infrastructure for future development.
