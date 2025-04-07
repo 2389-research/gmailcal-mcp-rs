@@ -350,10 +350,8 @@ macro_rules! assert_json_contains {
 /// Helper macro to parameterize tests with different inputs
 #[macro_export]
 macro_rules! parameterized_test {
-    ($name:ident, $($param:expr),+ $(,)?) => {
+    ($name:ident, $($param:ident),+ $(,)?) => {
         mod $name {
-            use super::*;
-            
             $(
                 #[test]
                 fn $param() {
