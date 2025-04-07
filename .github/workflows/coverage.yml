@@ -19,7 +19,7 @@ jobs:
             - name: Rust Cache
               uses: Swatinem/rust-cache@v2
 
-            - name: Install tarpaulin
+            - name: Install Tarpaulin
               run: cargo install cargo-tarpaulin
 
             - name: Run cargo tarpaulin
