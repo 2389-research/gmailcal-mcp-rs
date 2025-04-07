@@ -152,7 +152,8 @@ fn test_configuration() {
 
     // Because the test structure shares environment variables, we need to check
     // if our other tests are interfering with this one.
-    // We'll check if the config works first, then we can try with missing variables
+    // Set a non-existent dotenv path to make sure no .env file is loaded
+    env::set_var("DOTENV_PATH", "/tmp/nonexistent_dotenv_file_for_tests");
     
     // First make sure we can create a valid config
     let valid_config = Config::from_env();

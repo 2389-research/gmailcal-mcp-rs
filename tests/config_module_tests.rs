@@ -110,8 +110,18 @@ fn test_config_with_access_token() {
 /// Test error when missing client ID
 #[test]
 fn test_missing_client_id() {
-    // First ensure all environment variables are removed
+    // Save the original environment variables so we can restore them later
+    let original_client_id = env::var("GMAIL_CLIENT_ID").ok();
+    let original_client_secret = env::var("GMAIL_CLIENT_SECRET").ok();
+    let original_refresh_token = env::var("GMAIL_REFRESH_TOKEN").ok();
+    let original_access_token = env::var("GMAIL_ACCESS_TOKEN").ok();
+    let original_dotenv_path = env::var("DOTENV_PATH").ok();
+    
+    // First ensure all environment variables are completely removed
     clear_env_vars();
+    
+    // Set a non-existent path for dotenv to ensure it doesn't load from .env files
+    env::set_var("DOTENV_PATH", "/tmp/nonexistent_dotenv_file_for_tests");
     
     // Then set only what we want for this test
     env::set_var("GMAIL_CLIENT_SECRET", "test_client_secret");
@@ -123,15 +133,30 @@ fn test_missing_client_id() {
     // Verify that we get an error
     assert!(result.is_err(), "Should return an error when missing client ID");
     
-    // Clean up
+    // Restore the original environment variables
     clear_env_vars();
+    if let Some(val) = original_client_id { env::set_var("GMAIL_CLIENT_ID", val); }
+    if let Some(val) = original_client_secret { env::set_var("GMAIL_CLIENT_SECRET", val); }
+    if let Some(val) = original_refresh_token { env::set_var("GMAIL_REFRESH_TOKEN", val); }
+    if let Some(val) = original_access_token { env::set_var("GMAIL_ACCESS_TOKEN", val); }
+    if let Some(val) = original_dotenv_path { env::set_var("DOTENV_PATH", val); }
 }
 
 /// Test error when missing client secret
 #[test]
 fn test_missing_client_secret() {
-    // First ensure all environment variables are removed
+    // Save the original environment variables so we can restore them later
+    let original_client_id = env::var("GMAIL_CLIENT_ID").ok();
+    let original_client_secret = env::var("GMAIL_CLIENT_SECRET").ok();
+    let original_refresh_token = env::var("GMAIL_REFRESH_TOKEN").ok();
+    let original_access_token = env::var("GMAIL_ACCESS_TOKEN").ok();
+    let original_dotenv_path = env::var("DOTENV_PATH").ok();
+    
+    // First ensure all environment variables are completely removed
     clear_env_vars();
+    
+    // Set a non-existent path for dotenv to ensure it doesn't load from .env files
+    env::set_var("DOTENV_PATH", "/tmp/nonexistent_dotenv_file_for_tests");
     
     // Then set only what we want for this test
     env::set_var("GMAIL_CLIENT_ID", "test_client_id");
@@ -143,15 +168,30 @@ fn test_missing_client_secret() {
     // Verify that we get an error
     assert!(result.is_err(), "Should return an error when missing client secret");
     
-    // Clean up
+    // Restore the original environment variables
     clear_env_vars();
+    if let Some(val) = original_client_id { env::set_var("GMAIL_CLIENT_ID", val); }
+    if let Some(val) = original_client_secret { env::set_var("GMAIL_CLIENT_SECRET", val); }
+    if let Some(val) = original_refresh_token { env::set_var("GMAIL_REFRESH_TOKEN", val); }
+    if let Some(val) = original_access_token { env::set_var("GMAIL_ACCESS_TOKEN", val); }
+    if let Some(val) = original_dotenv_path { env::set_var("DOTENV_PATH", val); }
 }
 
 /// Test error when missing refresh token
 #[test]
 fn test_missing_refresh_token() {
-    // First ensure all environment variables are removed
+    // Save the original environment variables so we can restore them later
+    let original_client_id = env::var("GMAIL_CLIENT_ID").ok();
+    let original_client_secret = env::var("GMAIL_CLIENT_SECRET").ok();
+    let original_refresh_token = env::var("GMAIL_REFRESH_TOKEN").ok();
+    let original_access_token = env::var("GMAIL_ACCESS_TOKEN").ok();
+    let original_dotenv_path = env::var("DOTENV_PATH").ok();
+    
+    // First ensure all environment variables are completely removed
     clear_env_vars();
+    
+    // Set a non-existent path for dotenv to ensure it doesn't load from .env files
+    env::set_var("DOTENV_PATH", "/tmp/nonexistent_dotenv_file_for_tests");
     
     // Then set only what we want for this test
     env::set_var("GMAIL_CLIENT_ID", "test_client_id");
@@ -163,8 +203,13 @@ fn test_missing_refresh_token() {
     // Verify that we get an error
     assert!(result.is_err(), "Should return an error when missing refresh token");
     
-    // Clean up
+    // Restore the original environment variables
     clear_env_vars();
+    if let Some(val) = original_client_id { env::set_var("GMAIL_CLIENT_ID", val); }
+    if let Some(val) = original_client_secret { env::set_var("GMAIL_CLIENT_SECRET", val); }
+    if let Some(val) = original_refresh_token { env::set_var("GMAIL_REFRESH_TOKEN", val); }
+    if let Some(val) = original_access_token { env::set_var("GMAIL_ACCESS_TOKEN", val); }
+    if let Some(val) = original_dotenv_path { env::set_var("DOTENV_PATH", val); }
 }
 
 /// Test token expiry configuration

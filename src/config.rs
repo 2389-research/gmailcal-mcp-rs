@@ -14,7 +14,12 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
         // Attempt to load .env file if present
-        let _ = dotenv();
+        // If DOTENV_PATH is set, use that path, otherwise use default
+        if let Ok(path) = std::env::var("DOTENV_PATH") {
+            let _ = dotenv::from_path(path);
+        } else {
+            let _ = dotenv();
+        }
 
         debug!("Loading Gmail OAuth configuration from environment");
 
