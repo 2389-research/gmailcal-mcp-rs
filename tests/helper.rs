@@ -12,11 +12,14 @@ use std::env;
 use lazy_static::lazy_static;
 
 /// Environment variable management for tests
+/// This struct provides a convenient way to set environment variables
+/// for tests and automatically restore them when the test is done.
 pub struct EnvVarGuard {
     vars: HashMap<String, Option<String>>,
 }
 
 impl EnvVarGuard {
+    /// Create a new environment variable guard
     pub fn new() -> Self {
         EnvVarGuard {
             vars: HashMap::new(),
@@ -24,6 +27,10 @@ impl EnvVarGuard {
     }
 
     /// Set an environment variable for the duration of the test
+    /// 
+    /// # Arguments
+    /// * `key` - The name of the environment variable
+    /// * `value` - The value to set the environment variable to
     pub fn set(&mut self, key: &str, value: &str) {
         let prev = env::var(key).ok();
         self.vars.insert(key.to_string(), prev);
@@ -31,6 +38,9 @@ impl EnvVarGuard {
     }
 
     /// Remove an environment variable for the duration of the test
+    /// 
+    /// # Arguments
+    /// * `key` - The name of the environment variable to remove
     pub fn remove(&mut self, key: &str) {
         let prev = env::var(key).ok();
         self.vars.insert(key.to_string(), prev);
@@ -38,6 +48,8 @@ impl EnvVarGuard {
     }
 }
 
+/// When the EnvVarGuard is dropped (goes out of scope),
+/// it restores the original environment variables
 impl Drop for EnvVarGuard {
     fn drop(&mut self) {
         for (key, value) in &self.vars {
