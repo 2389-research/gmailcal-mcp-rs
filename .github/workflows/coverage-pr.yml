@@ -20,7 +20,7 @@ jobs:
                   echo "COVERAGE=$(grep -Po 'line-rate="\K[^"]*' cobertura.xml | awk '{print $1 * 100}')%" >> $GITHUB_ENV
               continue-on-error: true
             - name: Upload Coverage to Artifacts
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: coverage-report
                   path: tarpaulin-report.html
