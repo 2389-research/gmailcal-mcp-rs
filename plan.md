@@ -93,18 +93,25 @@ This document outlines our strategy to systematically improve code coverage from
   - ✅ All error conditions verified
     - *Comprehensively tested error handling for missing environment variables*
 
-### 2.3 Utils Module Testing
-- **Current Coverage:** 3.45%
+### 2.3 Utils Module Testing - ✅ COMPLETE
+- **Current Coverage:** 100%
 - **Action Items:**
-  - Test all error mapping functions
-  - Test base64 encoding/decoding with edge cases
-  - Test parsing functions with various inputs
+  - ✅ Test all error mapping functions
+    - *Added comprehensive tests for to_mcp_error and map_gmail_error functions*
+  - ✅ Test base64 encoding/decoding with edge cases
+    - *Added tests for various edge cases including empty strings, special characters, and invalid base64*
+  - ✅ Test parsing functions with various inputs
+    - *Added table-driven tests for parse_max_results with different input types*
 - **Testing Strategies:**
-  - Implement property-based testing for encoders/decoders
-  - Use table-driven tests for error mapping verification
+  - ✅ Implement property-based testing for encoders/decoders
+    - *Used round-trip testing to ensure encoding and decoding works correctly*
+  - ✅ Use table-driven tests for error mapping verification
+    - *Used parameterized tests to verify all error code paths*
 - **Success Metrics:**
-  - 100% line coverage for utils.rs
-  - Property tests verifying invariants
+  - ✅ 100% line coverage for utils.rs functions
+    - *Achieved comprehensive test coverage for all functions in utils.rs*
+  - ✅ Property tests verifying invariants
+    - *Verified encoding/decoding round-trip properties for various inputs*
 
 ## Phase 3: API Module Testing (Weeks 6-10)
 
