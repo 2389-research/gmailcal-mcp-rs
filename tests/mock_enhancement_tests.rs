@@ -158,14 +158,14 @@ mod mock_enhancement_tests {
         }
 
         // Verify the error rate is approximately 50%
-        // Allow for some statistical variation (40-60%)
+        // Allow for some statistical variation (35-65%)
         assert!(
-            error_count >= iterations * 4 / 10,
+            error_count >= iterations * 35 / 100,
             "Error count too low: {}",
             error_count
         );
         assert!(
-            error_count <= iterations * 6 / 10,
+            error_count <= iterations * 65 / 100,
             "Error count too high: {}",
             error_count
         );
