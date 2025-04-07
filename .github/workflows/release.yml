@@ -88,6 +88,29 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
               with:
                   targets: ${{ matrix.use_universal == true && 'x86_64-apple-darwin,aarch64-apple-darwin' || matrix.target }}
+                  
+            # Set up Apple code signing certificate and keychain
+            - name: Install Apple certificate and provisioning profile
+              if: runner.os == 'macOS'
+              env:
+                APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+                APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+                APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+                KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'temporary_password' }}
+              run: |
+                # Create keychain
+                security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+                security default-keychain -s build.keychain
+                security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+                security set-keychain-settings -t 3600 -u build.keychain
+                
+                # Import certificate
+                echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+                security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+                security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+                
+                # Clean up
+                rm certificate.p12
 
             # Standard build for most platforms
             - name: Build (standard)
@@ -116,6 +139,39 @@ jobs:
               if: runner.os != 'Windows'
               run: strip ${{ matrix.binary_path }}
               continue-on-error: true
+              
+            # Code sign the macOS binary
+            - name: Code Sign macOS Binary
+              if: runner.os == 'macOS'
+              env:
+                APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+              run: |
+                # Code sign the binary with hardened runtime
+                codesign --force --options runtime --sign "Developer ID Application: ${APPLE_TEAM_ID}" ${{ matrix.binary_path }}
+                
+                # Verify signature
+                codesign --verify --verbose ${{ matrix.binary_path }}
+                
+            # Notarize the macOS app
+            - name: Notarize macOS app
+              if: runner.os == 'macOS'
+              env:
+                APPLE_ID: ${{ secrets.APPLE_ID }}
+                APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+                APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+              run: |
+                # Create a temporary zip for notarization
+                ditto -c -k --keepParent ${{ matrix.binary_path }} notarize.zip
+                
+                # Submit for notarization
+                xcrun notarytool submit notarize.zip \
+                  --apple-id "$APPLE_ID" \
+                  --password "$APPLE_APP_PASSWORD" \
+                  --team-id "$APPLE_TEAM_ID" \
+                  --wait
+                  
+                # Clean up
+                rm notarize.zip
 
             # Package assets based on platform
             - name: Package for Unix
