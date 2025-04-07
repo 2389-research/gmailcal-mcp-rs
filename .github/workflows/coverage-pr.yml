@@ -1,0 +1,40 @@
+name: PR Rust Code Coverage
+
+on: [pull_request]
+
+jobs:
+    coverage:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Rust
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  override: true
+
+            - name: Install Tarpaulin
+              run: cargo install cargo-tarpaulin
+
+            - name: Run Tarpaulin
+              run: cargo tarpaulin --out Html
+              continue-on-error: true
+
+            - name: Upload Coverage to Artifacts
+              uses: actions/upload-artifact@v3
+              with:
+                  name: coverage-report
+                  path: tarpaulin-report.html
+
+            - name: Post Coverage Comment
+              uses: peter-evans/create-or-update-comment@v1
+              with:
+                  issue-number: ${{ github.event.pull_request.number }}
+                  body: |
+                      ## Code Coverage Report
+                      ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                      ```html
+                      $(cat tarpaulin-report.html)
+                      ```

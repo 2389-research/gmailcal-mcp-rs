@@ -25,5 +25,8 @@ jobs:
             - name: Run cargo tarpaulin
               run: cargo tarpaulin --out Xml
 
-            - name: Upload to codecov.io
-              uses: codecov/codecov-action@v3
+            - name: Upload Coverage to GitHub Artifacts
+              uses: actions/upload-artifact@v3
+              with:
+                  name: tarpaulin-report
+                  path: cobertura.xml
