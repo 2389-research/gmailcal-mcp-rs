@@ -150,13 +150,21 @@ fn test_configuration() {
     assert_eq!(env::var("GMAIL_ACCESS_TOKEN").unwrap(), "test_access_token");
     assert_eq!(env::var("GMAIL_REDIRECT_URI").unwrap(), "test_redirect_uri");
 
-    // Test with missing environment variables
+    // Because the test structure shares environment variables, we need to check
+    // if our other tests are interfering with this one.
+    // We'll check if the config works first, then we can try with missing variables
+    
+    // First make sure we can create a valid config
+    let valid_config = Config::from_env();
+    assert!(valid_config.is_ok(), "Config should be valid with all variables set");
+    
+    // Now test with missing environment variables
     env::remove_var("GMAIL_CLIENT_ID");
     assert!(env::var("GMAIL_CLIENT_ID").is_err());
     
     // Verify config creation fails with missing variable
-    let config = Config::from_env();
-    assert!(config.is_err());
+    let invalid_config = Config::from_env();
+    assert!(invalid_config.is_err(), "Config should fail with missing GMAIL_CLIENT_ID");
     
     // Restore the variable (not necessary because of guard, but for clarity)
     env::set_var("GMAIL_CLIENT_ID", "test_client_id");
