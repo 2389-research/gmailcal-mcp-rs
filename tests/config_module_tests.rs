@@ -111,61 +111,73 @@ fn test_config_with_access_token() {
 /// Test error when missing client ID
 #[test]
 fn test_missing_client_id() {
-    // Set up environment for error test
-    clear_env_vars();
+    let mut guard = helper::EnvVarGuard::new();
     
-    // Set only client secret and refresh token (omitting client ID)
-    env::set_var("GMAIL_CLIENT_SECRET", "test_client_secret");
-    env::set_var("GMAIL_REFRESH_TOKEN", "test_refresh_token");
+    // First ensure all environment variables are removed
+    guard.remove("GMAIL_CLIENT_ID");
+    guard.remove("GMAIL_CLIENT_SECRET");
+    guard.remove("GMAIL_REFRESH_TOKEN");
+    guard.remove("GMAIL_ACCESS_TOKEN");
+    
+    // Then set only what we want for this test
+    guard.set("GMAIL_CLIENT_SECRET", "test_client_secret");
+    guard.set("GMAIL_REFRESH_TOKEN", "test_refresh_token");
     
     // Try to create config without client ID
     let result = Config::from_env();
     
-    // Only verify that there is an error - specific error text might vary
+    // Verify that we get an error
     assert!(result.is_err(), "Should return an error when missing client ID");
     
-    // Clean up
-    clear_env_vars();
+    // The guard will automatically restore the original environment when dropped
 }
 
 /// Test error when missing client secret
 #[test]
 fn test_missing_client_secret() {
-    // Set up environment for error test
-    clear_env_vars();
+    let mut guard = helper::EnvVarGuard::new();
     
-    // Set only client ID and refresh token (omitting client secret)
-    env::set_var("GMAIL_CLIENT_ID", "test_client_id");
-    env::set_var("GMAIL_REFRESH_TOKEN", "test_refresh_token");
+    // First ensure all environment variables are removed
+    guard.remove("GMAIL_CLIENT_ID");
+    guard.remove("GMAIL_CLIENT_SECRET");
+    guard.remove("GMAIL_REFRESH_TOKEN");
+    guard.remove("GMAIL_ACCESS_TOKEN");
+    
+    // Then set only what we want for this test
+    guard.set("GMAIL_CLIENT_ID", "test_client_id");
+    guard.set("GMAIL_REFRESH_TOKEN", "test_refresh_token");
     
     // Try to create config without client secret
     let result = Config::from_env();
     
-    // Only verify that there is an error - specific error text might vary
+    // Verify that we get an error
     assert!(result.is_err(), "Should return an error when missing client secret");
     
-    // Clean up
-    clear_env_vars();
+    // The guard will automatically restore the original environment when dropped
 }
 
 /// Test error when missing refresh token
 #[test]
 fn test_missing_refresh_token() {
-    // Set up environment for error test
-    clear_env_vars();
+    let mut guard = helper::EnvVarGuard::new();
     
-    // Set only client ID and client secret (omitting refresh token)
-    env::set_var("GMAIL_CLIENT_ID", "test_client_id");
-    env::set_var("GMAIL_CLIENT_SECRET", "test_client_secret");
+    // First ensure all environment variables are removed
+    guard.remove("GMAIL_CLIENT_ID");
+    guard.remove("GMAIL_CLIENT_SECRET");
+    guard.remove("GMAIL_REFRESH_TOKEN");
+    guard.remove("GMAIL_ACCESS_TOKEN");
+    
+    // Then set only what we want for this test
+    guard.set("GMAIL_CLIENT_ID", "test_client_id");
+    guard.set("GMAIL_CLIENT_SECRET", "test_client_secret");
     
     // Try to create config without refresh token
     let result = Config::from_env();
     
-    // Only verify that there is an error - specific error text might vary
+    // Verify that we get an error
     assert!(result.is_err(), "Should return an error when missing refresh token");
     
-    // Clean up
-    clear_env_vars();
+    // The guard will automatically restore the original environment when dropped
 }
 
 /// Test token expiry configuration
