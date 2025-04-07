@@ -6,10 +6,10 @@
 use mcp_gmailcal::auth::TokenManager;
 use mcp_gmailcal::config::Config;
 use mcp_gmailcal::errors::GmailApiError;
+use mockito;
 use reqwest::Client;
 use std::env;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
 
 mod helper;
 #[macro_use]
@@ -27,6 +27,15 @@ fn create_mock_config(include_access_token: bool) -> Config {
             None
         },
     }
+}
+
+/// Helper function to clear all relevant environment variables
+fn clear_env_vars() {
+    env::remove_var("GMAIL_CLIENT_ID");
+    env::remove_var("GMAIL_CLIENT_SECRET");
+    env::remove_var("GMAIL_REFRESH_TOKEN");
+    env::remove_var("GMAIL_ACCESS_TOKEN");
+    env::remove_var("TOKEN_EXPIRY_SECONDS");
 }
 
 /// Test token manager initialization scenarios
@@ -52,8 +61,8 @@ async fn test_token_manager_initialization() {
 }
 
 /// Test token expiry behavior using multiple token managers
-#[tokio::test]
-async fn test_token_expiry_behavior() {
+#[test]
+fn test_token_expiry_behavior() {
     // Test with an existing access token
     let config = create_mock_config(true);
     let mut token_manager = TokenManager::new(&config);
@@ -61,58 +70,45 @@ async fn test_token_expiry_behavior() {
     // Get token - should work since we have a valid token
     let client = Client::new();
     
-    // Test with a valid token (might return Ok or Err depending on environment)
-    let token_result = token_manager.get_token(&client).await;
+    // Using a runtime in a standalone way to avoid nested runtime errors
+    let runtime = tokio::runtime::Runtime::new().unwrap();
     
-    match token_result {
-        Ok(token) => {
-            // If we got a successful response, check it's the initial token
-            assert_eq!(token, "initial_access_token");
-            println!("Using initial token successful");
-        },
-        Err(e) => {
-            // It's okay if it fails due to network/auth in test environment
-            println!("Note: Token request failed as expected in test: {:?}", e);
-        }
-    }
+    // Test with a valid token - should return the initial token without refresh
+    let token_result = runtime.block_on(token_manager.get_token(&client));
     
-    // Now create a new token manager with no initial token
-    // This will force it to try to refresh
-    let config_no_token = create_mock_config(false);
-    let mut token_manager_no_token = TokenManager::new(&config_no_token);
+    // Should succeed in providing the token without needing network request
+    assert!(token_result.is_ok(), "Getting existing token should succeed");
+    assert_eq!(token_result.unwrap(), "initial_access_token");
     
-    // This should try to refresh the token but will fail in test environment
-    let refresh_result = token_manager_no_token.get_token(&client).await;
-    
-    // In test environment, expect this to fail
-    println!("Refresh attempt result: {:?}", refresh_result);
-    
-    // We don't want to assert specific error types because they might vary
-    // depending on the test environment, but we want to ensure the code runs
+    // Skip the additional tests for now to simplify
+    // We'll focus on the basic token behavior without introducing mockito
 }
 
-/// Test various token scenarios
-#[tokio::test]
-async fn test_token_scenarios() {
+/// Test various token scenarios with basic approach
+#[test]
+fn test_token_scenarios() {
     // Test with no initial access token
     let config = create_mock_config(false);
     let mut token_manager = TokenManager::new(&config);
     
     // Get token - should attempt refresh since there's no initial token
     let client = Client::new();
-    let result = token_manager.get_token(&client).await;
     
-    // In test environment without proper mocks, this should normally fail
-    // but we just log the result without strict assertions
+    // Using a runtime in a standalone way to avoid nested runtime errors
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    
+    // This will likely fail without a mock, but we're just testing the code path execution
+    let result = runtime.block_on(token_manager.get_token(&client));
+    
+    // Just log the result without asserting - in real environment this would likely fail
     println!("Token refresh result: {:?}", result);
     
-    // Just checking that the code executes the refresh path
-    // The actual result may vary depending on environment
+    // We're more interested in testing that the code doesn't panic rather than specific results
 }
 
 /// Test initialization with empty credentials
-#[tokio::test]
-async fn test_empty_credentials() {
+#[test]
+fn test_empty_credentials() {
     // Test what happens with empty credentials
     let config = Config {
         client_id: "".to_string(),
@@ -127,9 +123,14 @@ async fn test_empty_credentials() {
     // Check that the manager was created
     assert!(std::mem::size_of_val(&token_manager) > 0, "Token manager should be created");
     
-    // For completeness, try to get a token, but don't make assumptions about exact errors
+    // Using a runtime in a standalone way to avoid nested runtime errors
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    
+    // Try to get a token with empty credentials - this will likely fail but shouldn't panic
     let client = Client::new();
-    let result = token_manager.get_token(&client).await;
+    let result = runtime.block_on(token_manager.get_token(&client));
+    
+    // Just log the result - in a real environment this would fail in different ways
     println!("Empty credentials token result: {:?}", result);
     
     // The test is successful if we reach this point without panicking
@@ -157,6 +158,9 @@ fn test_token_manager_thread_safety() {
 /// Test token refresh with token expiry time from environment
 #[tokio::test]
 async fn test_token_expiry_from_env() {
+    // Clean environment before test
+    clear_env_vars();
+    
     // Test with default expiry
     let config = create_mock_config(true);
     let mut token_manager = TokenManager::new(&config);
@@ -175,6 +179,6 @@ async fn test_token_expiry_from_env() {
     // We can't directly verify the expiry time, but having the code run is sufficient
     let _ = token_manager_custom_expiry;
     
-    // Reset environment
-    env::remove_var("TOKEN_EXPIRY_SECONDS");
+    // Clean up environment after test
+    clear_env_vars();
 }
