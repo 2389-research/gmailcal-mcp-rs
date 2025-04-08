@@ -7,35 +7,37 @@ This page provides an overview of applications that support the Model Context Pr
 
 ## Feature support matrix
 
-| Client                               | [Resources] | [Prompts] | [Tools] | [Sampling] | Roots | Notes                                                              |   |                      |   |   |   |   |   |                               |
-| ------------------------------------ | ----------- | --------- | ------- | ---------- | ----- | ------------------------------------------------------------------ | - | -------------------- | - | - | - | - | - | ----------------------------- |
-| [Claude Desktop App][Claude]         | ✅           | ✅         | ✅       | ❌          | ❌     | Full support for all MCP features                                  |   |                      |   |   |   |   |   |                               |
-| [Claude Code][Claude Code]           | ❌           | ✅         | ✅       | ❌          | ❌     | Supports prompts and tools                                         |   |                      |   |   |   |   |   |                               |
-| [5ire][5ire]                         | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools.                                                    |   |                      |   |   |   |   |   |                               |
-| [BeeAI Framework][BeeAI Framework]   | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools in agentic workflows.                               |   |                      |   |   |   |   |   |                               |
-| [Cline][Cline]                       | ✅           | ❌         | ✅       | ❌          | ❌     | Supports tools and resources.                                      |   |                      |   |   |   |   |   |                               |
-| [Continue][Continue]                 | ✅           | ✅         | ✅       | ❌          | ❌     | Full support for all MCP features                                  |   |                      |   |   |   |   |   |                               |
-| [Copilot-MCP][CopilotMCP]            | ✅           | ❌         | ✅       | ❌          | ❌     | Supports tools and resources.                                      |   |                      |   |   |   |   |   |                               |
-| [Cursor][Cursor]                     | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools.                                                    |   |                      |   |   |   |   |   |                               |
-| [Emacs Mcp][Mcp.el]                  | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools in Emacs.                                           |   |                      |   |   |   |   |   |                               |
-| [fast-agent][fast-agent]             | ✅           | ✅         | ✅       | ✅          | ✅     | Full multimodal MCP support, with end-to-end tests                 |   |                      |   |   |   |   |   |                               |
-| [Genkit][Genkit]                     | ⚠️          | ✅         | ✅       | ❌          | ❌     | Supports resource list and lookup through tools.                   |   |                      |   |   |   |   |   |                               |
-| [GenAIScript][GenAIScript]           | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools.                                                    |   |                      |   |   |   |   |   |                               |
-| [Goose][Goose]                       | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools.                                                    |   |                      |   |   |   |   |   |                               |
-| [LibreChat][LibreChat]               | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools for Agents                                          |   |                      |   |   |   |   |   |                               |
-| [mcp-agent][mcp-agent]               | ❌           | ❌         | ✅       | ⚠️         | ❌     | Supports tools, server connection management, and agent workflows. |   |                      |   |   |   |   |   |                               |
-| [Microsoft Copilot Studio]           | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools                                                     |   |                      |   |   |   |   |   |                               |
-| [oterm][oterm]                       | ❌           | ✅         | ✅       | ❌          | ❌     | Supports tools and prompts.                                        |   | [Roo Code][Roo Code] | ✅ | ❌ | ✅ | ❌ | ❌ | Supports tools and resources. |
-| [Sourcegraph Cody][Cody]             | ✅           | ❌         | ❌       | ❌          | ❌     | Supports resources through OpenCTX                                 |   |                      |   |   |   |   |   |                               |
-| [Superinterface][Superinterface]     | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools                                                     |   |                      |   |   |   |   |   |                               |
-| [TheiaAI/TheiaIDE][TheiaAI/TheiaIDE] | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools for Agents in Theia AI and the AI-powered Theia IDE |   |                      |   |   |   |   |   |                               |
-| [Windsurf Editor][Windsurf]          | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools with AI Flow for collaborative development.         |   |                      |   |   |   |   |   |                               |
-| [Witsy][Witsy]                       | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools in Witsy.                                           |   |                      |   |   |   |   |   |                               |
-| [Zed][Zed]                           | ❌           | ✅         | ❌       | ❌          | ❌     | Prompts appear as slash commands                                   |   |                      |   |   |   |   |   |                               |
-| [SpinAI][SpinAI]                     | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools for Typescript AI Agents                            |   |                      |   |   |   |   |   |                               |
-| [OpenSumi][OpenSumi]                 | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools in OpenSumi                                         |   |                      |   |   |   |   |   |                               |
-| [Daydreams Agents][Daydreams]        | ✅           | ✅         | ✅       | ❌          | ❌     | Support for drop in Servers to Daydreams agents                    |   |                      |   |   |   |   |   |                               |
-| [Apify MCP Tester][Apify MCP Tester] | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools                                                     |   |                      |   |   |   |   |   |                               |
+| Client                               | [Resources] | [Prompts] | [Tools] | [Sampling] | Roots | Notes                                                                                             |
+| ------------------------------------ | ----------- | --------- | ------- | ---------- | ----- | ------------------------------------------------------------------------------------------------- |
+| [Claude Desktop App][Claude]         | ✅           | ✅         | ✅       | ❌          | ❌     | Full support for all MCP features                                                                 |
+| [Claude Code][Claude Code]           | ❌           | ✅         | ✅       | ❌          | ✅     | Supports prompts, tools, and roots                                                                |
+| [5ire][5ire]                         | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools.                                                                                   |
+| [BeeAI Framework][BeeAI Framework]   | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools in agentic workflows.                                                              |
+| [Cline][Cline]                       | ✅           | ❌         | ✅       | ❌          | ❌     | Supports tools and resources.                                                                     |
+| [Continue][Continue]                 | ✅           | ✅         | ✅       | ❌          | ❌     | Full support for all MCP features                                                                 |
+| [Copilot-MCP][CopilotMCP]            | ✅           | ❌         | ✅       | ❌          | ❌     | Supports tools and resources.                                                                     |
+| [Cursor][Cursor]                     | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools.                                                                                   |
+| [Emacs Mcp][Mcp.el]                  | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools in Emacs.                                                                          |
+| [fast-agent][fast-agent]             | ✅           | ✅         | ✅       | ✅          | ✅     | Full multimodal MCP support, with end-to-end tests                                                |
+| [Genkit][Genkit]                     | ⚠️          | ✅         | ✅       | ❌          | ❌     | Supports resource list and lookup through tools.                                                  |
+| [GenAIScript][GenAIScript]           | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools.                                                                                   |
+| [Goose][Goose]                       | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools.                                                                                   |
+| [LibreChat][LibreChat]               | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools for Agents                                                                         |
+| [mcp-agent][mcp-agent]               | ❌           | ❌         | ✅       | ⚠️         | ❌     | Supports tools, server connection management, and agent workflows.                                |
+| [Microsoft Copilot Studio]           | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools                                                                                    |
+| [oterm][oterm]                       | ❌           | ✅         | ✅       | ❌          | ❌     | Supports tools and prompts.                                                                       |
+| [Roo Code][Roo Code]                 | ✅           | ❌         | ✅       | ❌          | ❌     | Supports tools and resources.                                                                     |
+| [Sourcegraph Cody][Cody]             | ✅           | ❌         | ❌       | ❌          | ❌     | Supports resources through OpenCTX                                                                |
+| [Superinterface][Superinterface]     | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools                                                                                    |
+| [TheiaAI/TheiaIDE][TheiaAI/TheiaIDE] | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools for Agents in Theia AI and the AI-powered Theia IDE                                |
+| [VS Code GitHub Copilot][VS Code]    | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools, roots, dynamic discovery, secure secret configuration, and one-click installation |
+| [Windsurf Editor][Windsurf]          | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools with AI Flow for collaborative development.                                        |
+| [Witsy][Witsy]                       | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools in Witsy.                                                                          |
+| [Zed][Zed]                           | ❌           | ✅         | ❌       | ❌          | ❌     | Prompts appear as slash commands                                                                  |
+| [SpinAI][SpinAI]                     | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools for Typescript AI Agents                                                           |
+| [OpenSumi][OpenSumi]                 | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools in OpenSumi                                                                        |
+| [Daydreams Agents][Daydreams]        | ✅           | ✅         | ✅       | ❌          | ❌     | Support for drop in Servers to Daydreams agents                                                   |
+| [Apify MCP Tester][Apify MCP Tester] | ❌           | ❌         | ✅       | ❌          | ❌     | Supports tools                                                                                    |
 
 [Claude]: https://claude.ai/download
 
@@ -100,6 +102,8 @@ This page provides an overview of applications that support the Model Context Pr
 [Sampling]: https://modelcontextprotocol.io/docs/concepts/sampling
 
 [Microsoft Copilot Studio]: https://learn.microsoft.com/en-us/microsoft-copilot-studio/agent-extend-action-mcp
+
+[VS Code]: https://code.visualstudio.com/
 
 ## Client details
 
@@ -331,6 +335,18 @@ Theia AI and Theia IDE's MCP integration provide users with flexibility, making 
 * [Theia IDE and Theia AI MCP Announcement](https://eclipsesource.com/blogs/2024/12/19/theia-ide-and-theia-ai-support-mcp/)
 * [Download the AI-powered Theia IDE](https://theia-ide.org/)
 
+### VS Code GitHub Copilot
+
+[VS Code](https://code.visualstudio.com/) integrates MCP with GitHub Copilot through [agent mode](https://code.visualstudio.com/docs/copilot/chat/chat-agent-mode), allowing direct interaction with MCP-provided tools within your agentic coding workflow. Configure servers in Claude Desktop, workspace or user settings, with guided MCP installation and secure handling of keys in input variables to avoid leaking hard-coded keys.
+
+**Key features:**
+
+* Support for stdio and server-sent events (SSE) transport
+* Per-session selection of tools per agent session for optimal performance
+* Easy server debugging with restart commands and output logging
+* Tool calls with editable inputs and always-allow toggle
+* Integration with existing VS Code extension system to register MCP servers from extensions
+
 ### Windsurf Editor
 
 [Windsurf Editor](https://codeium.com/windsurf) is an agentic IDE that combines AI assistance with developer workflows. It features an innovative AI Flow system that enables both collaborative and independent AI interactions while maintaining developer control.
@@ -427,61 +443,57 @@ For questions and discussions, please use [GitHub Discussions](https://github.co
 # Roadmap
 Source: https://modelcontextprotocol.io/development/roadmap
 
-Our plans for evolving Model Context Protocol (H1 2025)
+Our plans for evolving Model Context Protocol
 
-The Model Context Protocol is rapidly evolving. This page outlines our current thinking on key priorities and future direction for **the first half of 2025**, though these may change significantly as the project develops.
+<Info>Last updated: **2025-03-27**</Info>
+
+The Model Context Protocol is rapidly evolving. This page outlines our current thinking on key priorities and direction for approximately **the next six months**, though these may change significantly as the project develops. To see what's changed recently, check out the **[specification changelog](https://spec.modelcontextprotocol.io/specification/2025-03-26/changelog/)**.
 
 <Note>The ideas presented here are not commitments—we may solve these challenges differently than described, or some may not materialize at all. This is also not an *exhaustive* list; we may incorporate work that isn't mentioned here.</Note>
 
-We encourage community participation! Each section links to relevant discussions where you can learn more and contribute your thoughts.
+We value community participation! Each section links to relevant discussions where you can learn more and contribute your thoughts.
 
-## Remote MCP Support
+For a technical view of our standardization process, visit the [Standards Track](https://github.com/orgs/modelcontextprotocol/projects/2/views/2) on GitHub, which tracks how proposals progress toward inclusion in the official [MCP specification](https://spec.modelcontextprotocol.io).
 
-Our top priority is improving [remote MCP connections](https://github.com/modelcontextprotocol/specification/discussions/112), allowing clients to securely connect to MCP servers over the internet. Key initiatives include:
+## Validation
 
-* [**Authentication & Authorization**](https://github.com/modelcontextprotocol/specification/discussions/64): Adding standardized auth capabilities, particularly focused on OAuth 2.0 support.
+To foster a robust developer ecosystem, we plan to invest in:
 
-* [**Service Discovery**](https://github.com/modelcontextprotocol/specification/discussions/69): Defining how clients can discover and connect to remote MCP servers.
+* **Reference Client Implementations**: demonstrating protocol features with high-quality AI applications
+* **Compliance Test Suites**: automated verification that clients, servers, and SDKs properly implement the specification
 
-* [**Stateless Operations**](https://github.com/modelcontextprotocol/specification/discussions/102): Thinking about whether MCP could encompass serverless environments too, where they will need to be mostly stateless.
+These tools will help developers confidently implement MCP while ensuring consistent behavior across the ecosystem.
 
-## Reference Implementations
+## Registry
 
-To help developers build with MCP, we want to offer documentation for:
+For MCP to reach its full potential, we need streamlined ways to distribute and discover MCP servers.
 
-* **Client Examples**: Comprehensive reference client implementation(s), demonstrating all protocol features
-* **Protocol Drafting**: Streamlined process for proposing and incorporating new protocol features
+We plan to develop an [**MCP Registry**](https://github.com/orgs/modelcontextprotocol/discussions/159) that will enable centralized server discovery and metadata. This registry will primarily function as an API layer that third-party marketplaces and discovery services can build upon.
 
-## Distribution & Discovery
+## Agents
 
-Looking ahead, we're exploring ways to make MCP servers more accessible. Some areas we may investigate include:
+As MCP increasingly becomes part of agentic workflows, we're exploring [improvements](https://github.com/modelcontextprotocol/specification/discussions/111) such as:
 
-* **Package Management**: Standardized packaging format for MCP servers
-* **Installation Tools**: Simplified server installation across MCP clients
-* **Sandboxing**: Improved security through server isolation
-* **Server Registry**: A common directory for discovering available MCP servers
+* **[Agent Graphs](https://github.com/modelcontextprotocol/specification/discussions/94)**: enabling complex agent topologies through namespacing and graph-aware communication patterns
+* **Interactive Workflows**: improving human-in-the-loop experiences with granular permissioning, standardized interaction patterns, and [ways to directly communicate](https://github.com/modelcontextprotocol/specification/issues/97) with the end user
 
-## Agent Support
+## Multimodality
 
-We're expanding MCP's capabilities for [complex agentic workflows](https://github.com/modelcontextprotocol/specification/discussions/111), particularly focusing on:
+Supporting the full spectrum of AI capabilities in MCP, including:
 
-* [**Hierarchical Agent Systems**](https://github.com/modelcontextprotocol/specification/discussions/94): Improved support for trees of agents through namespacing and topology awareness.
+* **Additional Modalities**: video and other media types
+* **[Streaming](https://github.com/modelcontextprotocol/specification/issues/117)**: multipart, chunked messages, and bidirectional communication for interactive experiences
 
-* [**Interactive Workflows**](https://github.com/modelcontextprotocol/specification/issues/97): Better handling of user permissions and information requests across agent hierarchies, and ways to send output to users instead of models.
+## Governance
 
-* [**Streaming Results**](https://github.com/modelcontextprotocol/specification/issues/117): Real-time updates from long-running agent operations.
+We're implementing governance structures that prioritize:
 
-## Broader Ecosystem
-
-We're also invested in:
-
-* **Community-Led Standards Development**: Fostering a collaborative ecosystem where all AI providers can help shape MCP as an open standard through equal participation and shared governance, ensuring it meets the needs of diverse AI applications and use cases.
-* [**Additional Modalities**](https://github.com/modelcontextprotocol/specification/discussions/88): Expanding beyond text to support audio, video, and other formats.
-* \[**Standardization**] Considering standardization through a standardization body.
+* **Community-Led Development**: fostering a collaborative ecosystem where community members and AI developers can all participate in MCP's evolution, ensuring it serves diverse applications and use cases
+* **Transparent Standardization**: establishing clear processes for contributing to the specification, while exploring formal standardization via industry bodies
 
 ## Get Involved
 
-We welcome community participation in shaping MCP's future. Visit our [GitHub Discussions](https://github.com/orgs/modelcontextprotocol/discussions) to join the conversation and contribute your ideas.
+We welcome your contributions to MCP's future! Join our [GitHub Discussions](https://github.com/orgs/modelcontextprotocol/discussions) to share ideas, provide feedback, or participate in the development process.
 
 
 # What's New
@@ -822,7 +834,7 @@ Here's a basic example of implementing an MCP server:
             )
 
     if __name__ == "__main__":
-        asyncio.run(main)
+        asyncio.run(main())
     ```
   </Tab>
 </Tabs>
@@ -3215,6 +3227,7 @@ To use an MCP server with Claude, add it to your configuration:
 * [MCP CLI](https://github.com/wong2/mcp-cli) - Command-line inspector for testing MCP servers
 * [MCP Get](https://mcp-get.com) - Tool for installing and managing MCP servers
 * [Supergateway](https://github.com/supercorp-ai/supergateway) - Run MCP stdio servers over SSE
+* [Zapier MCP](https://zapier.com/mcp) - MCP Server with over 7,000+ apps and 30,000+ actions
 
 Visit our [GitHub Discussions](https://github.com/orgs/modelcontextprotocol/discussions) to engage with the MCP community.
 
@@ -5833,7 +5846,7 @@ This tutorial will primarily focus on tools.
     	
       @Tool(description = "Get weather alerts for a US state")
       public String getAlerts(
-          @ToolParam(description = "Two-letter US state code (e.g. CA, NY") String state)
+          @ToolParam(description = "Two-letter US state code (e.g. CA, NY)" String state
       ) {
           // Returns active alerts including:
           // - Event type
@@ -6260,16 +6273,12 @@ This tutorial will primarily focus on tools.
             Get weather alerts for a US state. Input is Two-letter US state code (e.g. CA, NY)
         """.trimIndent(),
         inputSchema = Tool.Input(
-            properties = JsonObject(
-                mapOf(
-                    "state" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Two-letter US state code (e.g. CA, NY)")
-                        )
-                    ),
-                )
-            ),
+            properties = buildJsonObject {
+                putJsonObject("state") {
+                    put("type", "string")
+                    put("description", "Two-letter US state code (e.g. CA, NY)")
+                }
+            },
             required = listOf("state")
         )
     ) { request ->
@@ -6292,12 +6301,10 @@ This tutorial will primarily focus on tools.
             Get weather forecast for a specific latitude/longitude
         """.trimIndent(),
         inputSchema = Tool.Input(
-            properties = JsonObject(
-                mapOf(
-                    "latitude" to JsonObject(mapOf("type" to JsonPrimitive("number"))),
-                    "longitude" to JsonObject(mapOf("type" to JsonPrimitive("number"))),
-                )
-            ),
+            properties = buildJsonObject {
+                putJsonObject("latitude") { put("type", "number") }
+                putJsonObject("longitude") { put("type", "number") }
+            },
             required = listOf("latitude", "longitude")
         )
     ) { request ->
