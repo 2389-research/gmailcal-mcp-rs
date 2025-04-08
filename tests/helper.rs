@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::env;
 #[allow(unused_imports)]
 use lazy_static::lazy_static;
+use std::time::SystemTime;
 
 /// Environment variable management for tests
 /// This struct provides a convenient way to set environment variables
