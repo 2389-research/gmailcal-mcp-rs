@@ -95,6 +95,8 @@ fn test_server_creation() {
         client_secret: "test_client_secret".to_string(),
         refresh_token: "test_refresh_token".to_string(),
         access_token: Some("test_access_token".to_string()),
+        token_refresh_threshold: 300, // Default 5 minutes
+        token_expiry_buffer: 60,      // Default 1 minute
     };
     
     // Check the config values directly
@@ -442,6 +444,8 @@ fn test_authentication_flows() {
         client_secret: "test_client_secret".to_string(),
         refresh_token: "test_refresh_token".to_string(),
         access_token: Some("test_access_token".to_string()),
+        token_refresh_threshold: 300, // Default 5 minutes
+        token_expiry_buffer: 60,      // Default 1 minute
     };
     
     // Verify config has expected tokens

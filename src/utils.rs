@@ -6,6 +6,9 @@ use serde_json;
 
 // Error code constants for MCP errors
 pub mod error_codes {
+    /// General internal errors
+    pub const GENERAL_ERROR: u32 = 1000;
+    
     /// Configuration related errors (environment variables, etc.)
     pub const CONFIG_ERROR: u32 = 1001;
 
@@ -17,10 +20,6 @@ pub mod error_codes {
 
     /// Message format/missing field errors
     pub const MESSAGE_FORMAT_ERROR: u32 = 1005;
-
-    /// General application errors for unspecified issues
-    #[allow(dead_code)]
-    pub const GENERAL_ERROR: u32 = 1000;
 
     // Map error codes to human-readable descriptions
     pub fn get_error_description(code: u32) -> &'static str {
@@ -241,6 +240,15 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                 e
             );
             to_mcp_error(&detailed_msg, error_codes::API_ERROR)
+        }
+        GmailApiError::CacheError(e) => {
+            let detailed_msg = format!(
+                "Token cache error: {}. The server encountered an error with the token cache. \
+                This is an internal error and should not affect functionality. \
+                The application will continue with in-memory token handling.", 
+                e
+            );
+            to_mcp_error(&detailed_msg, error_codes::GENERAL_ERROR)
         }
     }
 }

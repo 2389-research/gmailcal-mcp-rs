@@ -13,6 +13,8 @@ fn mock_config() -> Config {
         client_secret: "test_client_secret".to_string(),
         refresh_token: "test_refresh_token".to_string(),
         access_token: None,
+        token_refresh_threshold: 300, // Default 5 minutes
+        token_expiry_buffer: 60,      // Default 1 minute
     }
 }
 
@@ -23,6 +25,8 @@ fn mock_config_with_token() -> Config {
         client_secret: "test_client_secret".to_string(),
         refresh_token: "test_refresh_token".to_string(),
         access_token: Some("initial_access_token".to_string()),
+        token_refresh_threshold: 300, // Default 5 minutes
+        token_expiry_buffer: 60,      // Default 1 minute
     }
 }
 

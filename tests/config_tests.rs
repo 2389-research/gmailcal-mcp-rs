@@ -22,7 +22,7 @@ fn test_token_expiry_seconds() {
     
     // Test default value
     env::remove_var("TOKEN_EXPIRY_SECONDS");
-    assert_eq!(get_token_expiry_seconds(), 600); // Default is 10 minutes (600 seconds)
+    assert_eq!(get_token_expiry_seconds(), 3540); // Default is 59 minutes (3540 seconds)
     
     // Test custom value
     env::set_var("TOKEN_EXPIRY_SECONDS", "300"); // 5 minutes
@@ -30,7 +30,7 @@ fn test_token_expiry_seconds() {
     
     // Test invalid value (should return default)
     env::set_var("TOKEN_EXPIRY_SECONDS", "not_a_number");
-    assert_eq!(get_token_expiry_seconds(), 600);
+    assert_eq!(get_token_expiry_seconds(), 3540);
     
     // Restore original value if it existed
     match original {
@@ -48,6 +48,8 @@ fn test_config_direct_creation() {
         client_secret: "test_client_secret".to_string(),
         refresh_token: "test_refresh_token".to_string(),
         access_token: None,
+        token_refresh_threshold: 300, // Default 5 minutes
+        token_expiry_buffer: 60,      // Default 1 minute
     };
     
     // Verify the values
@@ -62,6 +64,8 @@ fn test_config_direct_creation() {
         client_secret: "test_client_secret".to_string(),
         refresh_token: "test_refresh_token".to_string(),
         access_token: Some("test_access_token".to_string()),
+        token_refresh_threshold: 300, // Default 5 minutes
+        token_expiry_buffer: 60,      // Default 1 minute
     };
     
     // Verify with access token

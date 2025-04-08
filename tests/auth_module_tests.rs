@@ -26,6 +26,8 @@ fn create_mock_config(include_access_token: bool) -> Config {
         } else {
             None
         },
+        token_refresh_threshold: 300, // Default 5 minutes
+        token_expiry_buffer: 60,      // Default 1 minute
     }
 }
 
@@ -115,6 +117,8 @@ fn test_empty_credentials() {
         client_secret: "".to_string(),
         refresh_token: "".to_string(),
         access_token: None,
+        token_refresh_threshold: 300, // Default 5 minutes
+        token_expiry_buffer: 60,      // Default 1 minute
     };
     
     // Create the token manager - this should work without errors
