@@ -91,6 +91,7 @@ pub const EMAIL_SEARCH_PROMPT: &str = r#"
 When helping users search for emails, consider these effective strategies:
 
 1. Gmail Search Operators:
+   - in:inbox (search only in inbox)
    - from: (sender's email address)
    - to: (recipient's email address)
    - subject: (words in the subject line)
@@ -103,7 +104,8 @@ When helping users search for emails, consider these effective strategies:
 
 2. Combinatorial Search:
    - Use multiple operators with AND/OR logic
-   - Example: "from:john@example.com AND has:attachment AND after:2023/01/01"
+   - Example: "in:inbox from:john@example.com AND has:attachment AND after:2023/01/01"
+   - Always include in:inbox when searching the inbox
 
 3. Phrase Search:
    - Use quotes for exact phrases
@@ -344,12 +346,29 @@ When helping users draft effective emails, follow these guidelines:
    - For sensitive topics: be diplomatic yet clear
    - For group emails: consider what everyone needs to know
 
-5. Before Sending Checklist:
+5. Reply Threading:
+   - When replying to emails, always set the following fields to maintain thread continuity:
+     * thread_id: Set to the original message's thread_id
+     * in_reply_to: Set to the original message's ID with angle brackets (format: "<message_id>")
+     * references: Set to the original message's ID with angle brackets (format: "<message_id>")
+   - Without these fields, replies will appear as forwards rather than in the email thread
+
+6. Iterating on Drafts:
+   - CRITICAL: When modifying an email draft, you MUST update the existing draft rather than creating a new one
+   - NEVER create a new draft when editing - ALWAYS update the existing draft
+   - ALWAYS verify the draft was successfully updated after every modification
+   - After each update, explicitly confirm to the user that the draft has been updated
+   - For threading replies, YOU MUST preserve all threading fields (thread_id, in_reply_to, references)
+   - FAILURE to maintain these threading fields will result in broken email threads
+   - If a draft update fails, immediately notify the user and retry with appropriate error handling
+
+7. Before Sending Checklist:
    - Verify all necessary information is included
    - Check that tone is appropriate
    - Ensure requests or questions are clear
    - Confirm any attachments are mentioned and included
    - Review for typos, grammar issues, or unclear phrasing
+   - For replies, confirm threading fields are properly set
 
 Adapt these guidelines based on the specific purpose, audience, and context of the email being drafted.
 "#;
