@@ -162,6 +162,171 @@ fn create_test_contact_json(
     })
 }
 
+// Create a contact JSON with additional fields (edge cases)
+fn create_extended_contact_json(
+    resource_name: &str,
+    display_name: &str,
+) -> Value {
+    json!({
+        "resourceName": resource_name,
+        "names": [{
+            "displayName": display_name,
+            "givenName": "Extended",
+            "familyName": "Contact",
+            "honorificPrefix": "Dr.",
+            "honorificSuffix": "PhD",
+            "middleName": "Test",
+            "phoneticGivenName": "ehk-STEN-ded",
+            "phoneticFamilyName": "KAHN-takt"
+        }],
+        "emailAddresses": [{
+            "value": "extended@example.com",
+            "type": "work",
+            "formattedType": "Work",
+            "displayName": "Extended Contact",
+            "metadata": {
+                "primary": true,
+                "verified": true
+            }
+        }],
+        "phoneNumbers": [{
+            "value": "+1234567890",
+            "type": "mobile",
+            "formattedType": "Mobile",
+            "canonicalForm": "+12345678901",
+            "metadata": {
+                "primary": true,
+                "verified": false
+            }
+        }],
+        "addresses": [{
+            "type": "home",
+            "formattedType": "Home",
+            "formattedValue": "123 Test St, Test City, TS 12345",
+            "streetAddress": "123 Test St",
+            "city": "Test City",
+            "region": "Test State",
+            "postalCode": "12345",
+            "country": "United States",
+            "countryCode": "US",
+            "metadata": {
+                "primary": true,
+                "verified": false
+            }
+        }],
+        "biographies": [{
+            "value": "This is a test biography with multiple paragraphs.\n\nIt contains information about the contact.",
+            "contentType": "TEXT_PLAIN",
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "birthdays": [{
+            "date": {
+                "year": 1990,
+                "month": 1,
+                "day": 15
+            },
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "calendarUrls": [{
+            "url": "https://calendar.example.com/extended",
+            "type": "work",
+            "formattedType": "Work"
+        }],
+        "clientData": [{
+            "key": "testKey",
+            "value": "testValue"
+        }],
+        "events": [{
+            "date": {
+                "year": 2020,
+                "month": 6,
+                "day": 15
+            },
+            "type": "anniversary",
+            "formattedType": "Anniversary"
+        }],
+        "externalIds": [{
+            "value": "EXT12345",
+            "type": "account",
+            "formattedType": "Account"
+        }],
+        "genders": [{
+            "value": "female",
+            "formattedValue": "Female",
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "interests": [{
+            "value": "Programming",
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "memberships": [{
+            "contactGroupMembership": {
+                "contactGroupId": "group123"
+            },
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "metadata": {
+            "sources": [{
+                "type": "CONTACT",
+                "id": "source123",
+                "etag": "abc123"
+            }],
+            "objectType": "PERSON"
+        },
+        "nicknames": [{
+            "value": "Ext",
+            "type": "default",
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "occupations": [{
+            "value": "Software Engineer",
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "relations": [{
+            "person": "people/relative123",
+            "type": "spouse",
+            "formattedType": "Spouse",
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "sipAddresses": [{
+            "value": "sip:extended@example.com",
+            "type": "work",
+            "formattedType": "Work",
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "urls": [{
+            "value": "https://www.example.com/extended",
+            "type": "website",
+            "formattedType": "Website",
+            "metadata": {
+                "primary": true
+            }
+        }],
+        "userDefined": [{
+            "key": "Custom Field",
+            "value": "Custom Value"
+        }]
+    })
+}
+
 // Mock implementation of PeopleClientInterface for testing
 struct MockPeopleClient {
     contacts: Vec<Contact>,
@@ -219,6 +384,28 @@ impl MockPeopleClient {
                     ("https://example.com/photo3a.jpg", false),
                     ("https://example.com/photo3b.jpg", true),
                 ],
+            ),
+            // Add an international contact
+            create_test_contact(
+                "people/contact4",
+                "José García",
+                Some("José"),
+                Some("García"),
+                vec![("jose.garcia@example.com", Some("work"))],
+                vec![("+34 612 345 678", Some("mobile"))],
+                vec![(Some("Spanish Company S.L."), Some("Ingeniero"))],
+                vec![("https://example.com/photo4.jpg", true)],
+            ),
+            // Add a contact with non-Latin script
+            create_test_contact(
+                "people/contact5",
+                "张伟",
+                Some("伟"),
+                Some("张"),
+                vec![("zhang.wei@example.com", Some("work"))],
+                vec![("+86 123 4567 8901", Some("mobile"))],
+                vec![(Some("中国公司"), Some("工程师"))],
+                vec![("https://example.com/photo5.jpg", true)],
             ),
         ];
 
@@ -507,8 +694,8 @@ mod comprehensive_people_api_tests {
         assert!(result.is_ok());
         
         let contact_list = result.unwrap();
-        assert_eq!(contact_list.contacts.len(), 3);
-        assert_eq!(contact_list.total_items, Some(3));
+        assert_eq!(contact_list.contacts.len(), 5); // Updated to 5 with added international contacts
+        assert_eq!(contact_list.total_items, Some(5));
         assert!(contact_list.next_page_token.is_none());
 
         // Verify contact details
@@ -526,7 +713,7 @@ mod comprehensive_people_api_tests {
         
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 2);
-        assert_eq!(contact_list.total_items, Some(3)); // Still reports total of 3
+        assert_eq!(contact_list.total_items, Some(5)); // Still reports total of 5
     }
 
     #[test]
@@ -609,6 +796,42 @@ mod comprehensive_people_api_tests {
         
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 1);
+    }
+
+    #[test]
+    fn test_search_international_contacts() {
+        let client = create_test_client();
+        
+        // Test searching by international name
+        let result = client.search_contacts("José", None);
+        assert!(result.is_ok());
+        
+        let contact_list = result.unwrap();
+        assert_eq!(contact_list.contacts.len(), 1);
+        assert_eq!(contact_list.contacts[0].name.as_ref().unwrap().display_name, "José García");
+        
+        // Test searching by partial international name (accent insensitive)
+        let result = client.search_contacts("jose", None);
+        assert!(result.is_ok());
+        
+        let contact_list = result.unwrap();
+        assert_eq!(contact_list.contacts.len(), 1);
+        
+        // Test searching by Chinese name
+        let result = client.search_contacts("张伟", None);
+        assert!(result.is_ok());
+        
+        let contact_list = result.unwrap();
+        assert_eq!(contact_list.contacts.len(), 1);
+        assert_eq!(contact_list.contacts[0].name.as_ref().unwrap().display_name, "张伟");
+        
+        // Test searching by international company
+        let result = client.search_contacts("中国公司", None);
+        assert!(result.is_ok());
+        
+        let contact_list = result.unwrap();
+        assert_eq!(contact_list.contacts.len(), 1);
+        assert_eq!(contact_list.contacts[0].name.as_ref().unwrap().display_name, "张伟");
     }
 
     #[test]
@@ -775,6 +998,39 @@ mod comprehensive_people_api_tests {
     }
 
     #[test]
+    fn test_parse_extended_contact() {
+        let client = create_test_client();
+        
+        // Create an extended contact JSON with many fields
+        let extended_json = create_extended_contact_json(
+            "people/extended",
+            "Extended Contact"
+        );
+        
+        // Parse the contact
+        let result = client.parse_contact(&extended_json);
+        assert!(result.is_ok());
+        
+        let contact = result.unwrap();
+        
+        // Verify basic fields - our parser should handle the fields it knows about
+        // and ignore the extra fields gracefully
+        assert_eq!(contact.resource_name, "people/extended");
+        assert_eq!(contact.name.as_ref().unwrap().display_name, "Extended Contact");
+        assert_eq!(contact.name.as_ref().unwrap().given_name, Some("Extended".to_string()));
+        assert_eq!(contact.name.as_ref().unwrap().family_name, Some("Contact".to_string()));
+        
+        // Check that we extracted the fields we support
+        assert_eq!(contact.email_addresses.len(), 1);
+        assert_eq!(contact.email_addresses[0].value, "extended@example.com");
+        assert_eq!(contact.email_addresses[0].type_, Some("work".to_string()));
+        
+        assert_eq!(contact.phone_numbers.len(), 1);
+        assert_eq!(contact.phone_numbers[0].value, "+1234567890");
+        assert_eq!(contact.phone_numbers[0].type_, Some("mobile".to_string()));
+    }
+
+    #[test]
     fn test_parse_contact_minimal() {
         let client = create_test_client();
 
@@ -863,6 +1119,38 @@ mod comprehensive_people_api_tests {
     }
 
     #[test]
+    fn test_parse_contact_cjk() {
+        let client = create_test_client();
+
+        // Create test JSON with CJK (Chinese, Japanese, Korean) characters
+        let cjk_json = create_test_contact_json(
+            "people/cjk",
+            "张伟",
+            Some("伟"),
+            Some("张"),
+            vec![("zhang.wei@example.com", Some("work"))],
+            vec![("+86 123 4567 8901", Some("mobile"))],
+            vec![(Some("中国公司"), Some("工程师"))],
+            vec![("https://example.com/zhangwei.jpg", true)],
+        );
+
+        // Parse the contact
+        let result = client.parse_contact(&cjk_json);
+        assert!(result.is_ok());
+        
+        let contact = result.unwrap();
+        
+        // Verify CJK fields
+        assert_eq!(contact.name.as_ref().unwrap().display_name, "张伟");
+        assert_eq!(contact.name.as_ref().unwrap().given_name, Some("伟".to_string()));
+        assert_eq!(contact.name.as_ref().unwrap().family_name, Some("张".to_string()));
+        
+        // Verify organization with CJK characters
+        assert_eq!(contact.organizations[0].name, Some("中国公司".to_string()));
+        assert_eq!(contact.organizations[0].title, Some("工程师".to_string()));
+    }
+
+    #[test]
     fn test_parse_contact_no_names() {
         let client = create_test_client();
 
@@ -933,5 +1221,46 @@ mod comprehensive_people_api_tests {
         let result = client.parse_contact(&json);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), PeopleApiError::ParseError(_)));
+    }
+    
+    #[test]
+    fn test_very_long_fields() {
+        let client = create_test_client();
+        
+        // Create a contact with very long fields to test handling of large data
+        let long_name = "A".repeat(1000);
+        let long_email = format!("{}@example.com", "a".repeat(500));
+        let long_org_name = "O".repeat(1000);
+        let long_title = "T".repeat(1000);
+        
+        let long_fields_json = create_test_contact_json(
+            "people/long_fields",
+            &long_name,
+            Some(&long_name),
+            Some(&long_name),
+            vec![(&long_email, Some("work"))],
+            vec![("123-456-7890", Some("mobile"))],
+            vec![(Some(&long_org_name), Some(&long_title))],
+            vec![("https://example.com/photo.jpg", true)],
+        );
+        
+        // Parse the contact
+        let result = client.parse_contact(&long_fields_json);
+        assert!(result.is_ok());
+        
+        let contact = result.unwrap();
+        
+        // Verify the long fields were parsed correctly
+        assert_eq!(contact.name.as_ref().unwrap().display_name.len(), 1000);
+        assert_eq!(contact.name.as_ref().unwrap().given_name.as_ref().unwrap().len(), 1000);
+        assert_eq!(contact.name.as_ref().unwrap().family_name.as_ref().unwrap().len(), 1000);
+        
+        // Verify email by length range rather than exact match to handle slight variations
+        let email_len = contact.email_addresses[0].value.len();
+        assert!(email_len > 500, "Email length should be over 500, got {}", email_len);
+        assert!(email_len < 520, "Email length should be under 520, got {}", email_len);
+        
+        assert_eq!(contact.organizations[0].name.as_ref().unwrap().len(), 1000);
+        assert_eq!(contact.organizations[0].title.as_ref().unwrap().len(), 1000);
     }
 }
