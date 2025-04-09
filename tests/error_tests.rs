@@ -1,5 +1,5 @@
 use mcp_gmailcal::errors::{
-    CalendarApiError, ConfigError, GmailApiError, PeopleApiError,
+    AppError, CalendarApiError, ConfigError, GmailApiError, PeopleApiError,
     error_codes::{
         AUTHENTICATION_ERROR, CONFIG_ERROR, CONTACT_NOT_FOUND, DRAFT_NOT_FOUND,
         EVENT_FORMAT_ERROR, EVENT_NOT_FOUND, INTERNAL_ERROR, INVALID_REQUEST,
@@ -18,6 +18,28 @@ use std::env;
 #[cfg(test)]
 mod error_tests {
     use super::*;
+    
+    // Test AppError
+    #[test]
+    fn test_app_error() {
+        // Test CacheDisabled variant
+        let cache_error = AppError::CacheDisabled;
+        assert_eq!(cache_error.to_string(), "Cache is disabled");
+        
+        // Test IoError variant
+        let io_error = AppError::IoError("File not found".to_string());
+        assert!(io_error.to_string().contains("IO Error"));
+        assert!(io_error.to_string().contains("File not found"));
+        
+        // Test EncryptionError variant
+        let enc_error = AppError::EncryptionError("Invalid key".to_string());
+        assert!(enc_error.to_string().contains("Encryption error"));
+        assert!(enc_error.to_string().contains("Invalid key"));
+        
+        // Ensure Debug trait is implemented
+        let debug_str = format!("{:?}", cache_error);
+        assert!(debug_str.contains("CacheDisabled"));
+    }
 
     // Test ConfigError
     #[test]
@@ -81,10 +103,14 @@ mod error_tests {
         assert!(error.to_string().contains("Too many requests"));
         assert!(error.to_string().contains("Rate limit error"));
         
+        let error = GmailApiError::CacheError("Failed to read cache".to_string());
+        assert!(error.to_string().contains("Failed to read cache"));
+        assert!(error.to_string().contains("Token cache error"));
+        
         // Ensure Debug trait is implemented
         let debug_str = format!("{:?}", error);
-        assert!(debug_str.contains("RateLimitError"));
-        assert!(debug_str.contains("Too many requests"));
+        assert!(debug_str.contains("CacheError"));
+        assert!(debug_str.contains("Failed to read cache"));
     }
     
     // Test PeopleApiError
