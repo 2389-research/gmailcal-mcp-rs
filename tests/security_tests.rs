@@ -13,6 +13,8 @@ fn create_sensitive_config() -> Config {
         client_secret: "super_secret_client_secret_abcde".to_string(),
         refresh_token: "super_secret_refresh_token_98765".to_string(),
         access_token: Some("super_secret_access_token_xyzabc".to_string()),
+        token_refresh_threshold: 300, // Default 5 minutes
+        token_expiry_buffer: 60,      // Default 1 minute
     }
 }
 

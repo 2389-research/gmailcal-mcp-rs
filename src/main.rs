@@ -1,37 +1,8 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use log::{debug, error, info, LevelFilter};
 use mcp_attr::server::serve_stdio;
-use mcp_gmailcal::{oauth, setup_logging, GmailServer};
+use mcp_gmailcal::{cli::{Cli, Commands}, oauth, setup_logging, GmailServer};
 use std::env;
-
-#[derive(Parser)]
-#[clap(name = "Gmail MCP Server")]
-#[clap(author = "Gmail MCP Contributors")]
-#[clap(version = "0.2.0")]
-#[clap(about = "MCP server for Gmail access", long_about = None)]
-struct Cli {
-    #[clap(subcommand)]
-    command: Option<Commands>,
-
-    /// Force use of stderr-only logging (no file logging)
-    #[clap(long, short, action)]
-    memory_only: bool,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Run the MCP server (default if no command specified)
-    #[clap(name = "server")]
-    Server,
-
-    /// Run the OAuth authentication flow to get new credentials
-    #[clap(name = "auth")]
-    Auth,
-
-    /// Test the current credentials
-    #[clap(name = "test")]
-    Test,
-}
 
 // Main function to start the MCP server
 #[tokio::main]

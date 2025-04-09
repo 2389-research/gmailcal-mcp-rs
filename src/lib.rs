@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod config;
+pub mod token_cache;
 // ===== Module Declarations =====
 
 /**
@@ -37,6 +38,7 @@ pub mod gmail_api;
 pub mod people_api;
 
 // Server implementation
+pub mod cli;
 pub mod oauth;
 pub mod prompts;
 pub mod server;
@@ -57,6 +59,7 @@ pub use crate::logging::setup_logging;
 
 // Authentication
 pub use crate::auth::TokenManager;
+pub use crate::token_cache::{TokenCache, TokenCacheConfig, CachedToken};
 
 // Gmail API types
 pub use crate::gmail_api::{DraftEmail, EmailMessage, GmailService};

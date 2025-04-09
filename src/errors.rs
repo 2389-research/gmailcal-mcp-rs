@@ -12,6 +12,19 @@ pub enum ConfigError {
     EnvError(#[from] env::VarError),
 }
 
+/// General application errors
+#[derive(Debug, Error)]
+pub enum AppError {
+    #[error("Cache is disabled")]
+    CacheDisabled,
+    
+    #[error("IO Error: {0}")]
+    IoError(String),
+    
+    #[error("Encryption error: {0}")]
+    EncryptionError(String),
+}
+
 /// Error type for Gmail API operations
 #[derive(Debug, Error)]
 pub enum GmailApiError {
@@ -32,6 +45,9 @@ pub enum GmailApiError {
 
     #[error("Rate limit error: {0}")]
     RateLimitError(String),
+    
+    #[error("Token cache error: {0}")]
+    CacheError(String),
 }
 
 /// Type alias for Gmail API results

@@ -28,3 +28,45 @@ IGNORE_LIST=$(IFS=, ; echo "${IGNORE_PATTERNS[*]}")
 # Run repomix with the combined ignore list
 npx repomix --style xml --output-show-line-numbers --output output.txt --ignore "$IGNORE_LIST"
 """
+
+[tasks."llm:generate_bundle_no_tests"]
+description = 'Generate LLM bundle output file using repomix'
+hide = true # hide this task from the lis
+run = """
+#!/usr/bin/env bash
+
+# Define the ignore patterns in a more maintainable way
+IGNORE_PATTERNS=(
+  "**/uv.lock"
+  "**/package-lock.json"
+  "**/.env"
+  "**/*.json"
+  "**/*.log"
+  "**/cobertura.xml"
+  "**/Cargo.lock"
+  "**/.notes"
+  "**/node_modules"
+  "**/target"
+  "**/dist"
+  "**/test"
+  "**/build"
+  "**/output.txt"
+  "**/yarn.lock"
+)
+
+# Join the patterns with commas for repomix
+IGNORE_LIST=$(IFS=, ; echo "${IGNORE_PATTERNS[*]}")
+
+# Run repomix with the combined ignore list
+npx repomix --style xml --output-show-line-numbers --output output.txt --ignore "$IGNORE_LIST"
+"""
+
+
+[tasks."llm:copy_buffer_bundle_no_tests"]
+depends = ["llm:generate_bundle_no_tests"]
+description = 'Copy generated LLM bundle from output.txt to system clipboard for external use'
+run = """
+#!/usr/bin/env bash
+cat output.txt | pbcopy
+echo "Pushed output.txt to the copy buffer"
+"""

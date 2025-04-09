@@ -205,11 +205,13 @@ impl CalendarClient {
         }
 
         if let Some(min_time) = time_min {
-            query_parts.push(format!("timeMin={}", min_time.to_rfc3339()));
+            let encoded_time = urlencoding::encode(&min_time.to_rfc3339()).into_owned();
+            query_parts.push(format!("timeMin={}", encoded_time));
         }
 
         if let Some(max_time) = time_max {
-            query_parts.push(format!("timeMax={}", max_time.to_rfc3339()));
+            let encoded_time = urlencoding::encode(&max_time.to_rfc3339()).into_owned();
+            query_parts.push(format!("timeMax={}", encoded_time));
         }
 
         // Add single events mode to expand recurring events
