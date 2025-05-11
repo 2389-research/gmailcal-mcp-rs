@@ -2,6 +2,8 @@
 name = "mcp-gmailcal"
 version = "0.10.0"
 edition = "2021"
+description = "A MCP server for google mail, calendar, and contacts."
+license = "MIT"
 
 [dependencies]
 mcp-attr = "0.0.5"
