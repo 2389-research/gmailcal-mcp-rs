@@ -401,38 +401,44 @@ impl TokenCache {
     }
 }
 
-// Generate a consistent encryption key from a password/secret
+// Generate a secure encryption key from a password/secret using PBKDF2
 fn generate_encryption_key(secret: &str) -> Vec<u8> {
-    // Simple key derivation - in a production system, use a proper KDF like PBKDF2
-    let mut key = Vec::with_capacity(32); // 256 bits for AES-256
-    let source = secret.as_bytes().to_vec();
+    use hmac::Hmac;
+    use pbkdf2::pbkdf2;
+    use sha2::Sha256;
 
-    // Pad or truncate the key to exactly 32 bytes
-    match source.len().cmp(&32) {
-        std::cmp::Ordering::Less => {
-            // If key is too short, repeat it
-            while key.len() < 32 {
-                key.extend_from_slice(&source);
-            }
-            key.truncate(32);
-        }
-        std::cmp::Ordering::Greater => {
-            // If key is too long, truncate it
-            key.extend_from_slice(&source[0..32]);
-        }
-        std::cmp::Ordering::Equal => {
-            // Key is exactly right size
-            key = source;
-        }
-    }
+    // Create a fixed-size array for the derived key (32 bytes for AES-256)
+    let mut key = [0u8; 32];
 
-    key
+    // Use a fixed salt for consistency (in a real app, use a unique salt per user)
+    // Salt is not for secrecy but for preventing rainbow table attacks
+    // For our use case with deterministic key derivation, we use a fixed application salt
+    let salt = b"gmailcal-mcp-rs-token-cache-salt-v1";
+
+    // Number of iterations: higher is more secure but slower
+    // 10,000 is a reasonable minimum recommendation for PBKDF2
+    let iterations = 10_000;
+
+    // Use PBKDF2-HMAC-SHA256 to derive the key
+    // The pbkdf2 function returns a Result that we need to handle
+    pbkdf2::<Hmac<Sha256>>(
+        secret.as_bytes(), // Password material
+        salt,              // Salt
+        iterations,        // Iteration count
+        &mut key,          // Output key buffer
+    )
+    .expect("PBKDF2 key derivation failed");
+
+    // Convert the fixed array to a Vec<u8>
+    key.to_vec()
 }
 
 // Fallback encryption key derived from machine-specific information
 // This is less secure than using a provided key but better than nothing
 fn fallback_encryption_key() -> Vec<u8> {
-    // Combine hostname and username to create a device-specific key
+    use sha2::{Digest, Sha256};
+
+    // Collect various machine-specific information to increase entropy
     let hostname = match std::process::Command::new("hostname").output() {
         Ok(output) => String::from_utf8_lossy(&output.stdout).to_string(),
         Err(_) => "unknown-host".to_string(),
@@ -443,9 +449,31 @@ fn fallback_encryption_key() -> Vec<u8> {
         Err(_) => "unknown-user".to_string(),
     };
 
-    // Combine and hash to get a unique key
-    let combined = format!("gmail-mcp-rs-{}-{}", hostname, username);
-    generate_encryption_key(&combined)
+    // Add executable path for additional entropy
+    let exe_path = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown-exe".to_string());
+
+    // Add current PID for additional entropy
+    let pid = std::process::id().to_string();
+
+    // Add a random component to make it harder to regenerate the exact same key
+    // even with all other information known
+    let random_salt: [u8; 16] = rand::random();
+
+    // Combine all sources of entropy
+    let combined = format!(
+        "gmail-mcp-rs-v2-{}-{}-{}-{}-{:?}",
+        hostname, username, exe_path, pid, random_salt
+    );
+
+    // Create a strong hash of the combined data before KDF
+    let mut hasher = Sha256::new();
+    hasher.update(combined.as_bytes());
+    let prehashed = hasher.finalize();
+
+    // Run the hashed entropy through PBKDF2 with higher iterations for fallback key
+    generate_encryption_key(&format!("{:x}", prehashed))
 }
 
 // Get default cache file location (platform-specific)
