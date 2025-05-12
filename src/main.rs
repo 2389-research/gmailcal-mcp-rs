@@ -1,7 +1,10 @@
 use clap::Parser;
 use log::{debug, error, info, LevelFilter};
 use mcp_attr::server::serve_stdio;
-use mcp_gmailcal::{cli::{Cli, Commands}, oauth, setup_logging, GmailServer};
+use mcp_gmailcal::{
+    cli::{Cli, Commands},
+    oauth, setup_logging, GmailServer,
+};
 use std::env;
 
 // Main function to start the MCP server

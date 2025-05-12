@@ -4,7 +4,7 @@
 /// focusing on environment variable handling, error cases, and
 /// token expiry configuration.
 ///
-use mcp_gmailcal::config::{Config, get_token_expiry_seconds};
+use mcp_gmailcal::config::{get_token_expiry_seconds, Config};
 use mcp_gmailcal::errors::ConfigError;
 use std::env;
 
@@ -27,10 +27,10 @@ fn clear_env_vars() {
 /// Create a Config directly from provided values
 /// This allows us to test Config construction without relying on environment variables
 fn create_config(
-    client_id: &str, 
-    client_secret: &str, 
+    client_id: &str,
+    client_secret: &str,
     refresh_token: &str,
-    access_token: Option<&str>
+    access_token: Option<&str>,
 ) -> Config {
     Config {
         client_id: client_id.to_string(),
@@ -51,19 +51,19 @@ fn test_config_from_env_success() {
         "test_client_id",
         "test_client_secret",
         "test_refresh_token",
-        Some("test_access_token")
+        Some("test_access_token"),
     );
-    
+
     // Verify config has correct values
     assert_eq!(config.client_id, "test_client_id");
     assert_eq!(config.client_secret, "test_client_secret");
     assert_eq!(config.refresh_token, "test_refresh_token");
     assert_eq!(config.access_token, Some("test_access_token".to_string()));
-    
+
     // Verify token expiry settings have defaults
     assert_eq!(config.token_refresh_threshold, 300);
     assert_eq!(config.token_expiry_buffer, 60);
-    
+
     // Test the environment variable loading version
     // This section is wrapped in a block to isolate environment variables
     {
@@ -72,16 +72,16 @@ fn test_config_from_env_success() {
         let original_client_secret = env::var("GMAIL_CLIENT_SECRET").ok();
         let original_refresh_token = env::var("GMAIL_REFRESH_TOKEN").ok();
         let original_access_token = env::var("GMAIL_ACCESS_TOKEN").ok();
-        
+
         // Set environment variables
         env::set_var("GMAIL_CLIENT_ID", "env_client_id");
         env::set_var("GMAIL_CLIENT_SECRET", "env_client_secret");
         env::set_var("GMAIL_REFRESH_TOKEN", "env_refresh_token");
         env::set_var("GMAIL_ACCESS_TOKEN", "env_access_token");
-        
+
         // Just verify that from_env runs without error
         let _ = Config::from_env();
-        
+
         // Clean up
         clear_env_vars();
     }
@@ -91,24 +91,33 @@ fn test_config_from_env_success() {
 #[test]
 fn test_missing_client_id() {
     // We'll test that Config::from_env() correctly handles missing required variables
-    
+
     // Let's create direct instances of the error to compare
     let missing_client_id_error = ConfigError::MissingEnvVar("GMAIL_CLIENT_ID".to_string());
     let missing_client_secret_error = ConfigError::MissingEnvVar("GMAIL_CLIENT_SECRET".to_string());
     let missing_refresh_token_error = ConfigError::MissingEnvVar("GMAIL_REFRESH_TOKEN".to_string());
-    
+
     // Test these errors format their messages correctly
     assert!(format!("{}", missing_client_id_error).contains("GMAIL_CLIENT_ID"));
     assert!(format!("{}", missing_client_secret_error).contains("GMAIL_CLIENT_SECRET"));
     assert!(format!("{}", missing_refresh_token_error).contains("GMAIL_REFRESH_TOKEN"));
-    
+
     // We know from manual testing that Config::from_env() correctly validates these fields
     // and the actual implementation is sound, so we'll skip the flaky environment tests.
-    
+
     // Instead verify the errors behave correctly
-    assert!(matches!(missing_client_id_error, ConfigError::MissingEnvVar(_)));
-    assert!(matches!(missing_client_secret_error, ConfigError::MissingEnvVar(_)));
-    assert!(matches!(missing_refresh_token_error, ConfigError::MissingEnvVar(_)));
+    assert!(matches!(
+        missing_client_id_error,
+        ConfigError::MissingEnvVar(_)
+    ));
+    assert!(matches!(
+        missing_client_secret_error,
+        ConfigError::MissingEnvVar(_)
+    ));
+    assert!(matches!(
+        missing_refresh_token_error,
+        ConfigError::MissingEnvVar(_)
+    ));
 }
 
 /// This test has been combined with test_missing_client_id
@@ -137,9 +146,9 @@ fn test_minimum_config() {
         "min_client_id",
         "min_client_secret",
         "min_refresh_token",
-        None
+        None,
     );
-    
+
     // Verify config has the expected values
     assert_eq!(config.client_id, "min_client_id");
     assert_eq!(config.client_secret, "min_client_secret");
@@ -157,13 +166,13 @@ fn test_full_config() {
         "full_client_id",
         "full_client_secret",
         "full_refresh_token",
-        Some("full_access_token")
+        Some("full_access_token"),
     );
-    
+
     // Set custom expiry values
     config.token_refresh_threshold = 500;
     config.token_expiry_buffer = 120;
-    
+
     // Verify all fields
     assert_eq!(config.client_id, "full_client_id");
     assert_eq!(config.client_secret, "full_client_secret");
@@ -181,9 +190,9 @@ fn test_config_with_access_token() {
         "access_client_id",
         "access_client_secret",
         "access_refresh_token",
-        Some("test_access_token")
+        Some("test_access_token"),
     );
-    
+
     // Check that access token is set
     assert!(config.access_token.is_some());
     assert_eq!(config.access_token.unwrap(), "test_access_token");
@@ -194,24 +203,33 @@ fn test_config_with_access_token() {
 fn test_token_expiry_seconds() {
     // Save original value to restore later
     let original_value = env::var("TOKEN_EXPIRY_SECONDS").ok();
-    
+
     // Clear existing value
     env::remove_var("TOKEN_EXPIRY_SECONDS");
-    
+
     // Check default value
     let default_value = get_token_expiry_seconds();
-    assert_eq!(default_value, 3540, "Default TOKEN_EXPIRY_SECONDS should be 3540");
-    
+    assert_eq!(
+        default_value, 3540,
+        "Default TOKEN_EXPIRY_SECONDS should be 3540"
+    );
+
     // Set custom value and check it's returned
     env::set_var("TOKEN_EXPIRY_SECONDS", "7200");
     let custom_value = get_token_expiry_seconds();
-    assert_eq!(custom_value, 7200, "TOKEN_EXPIRY_SECONDS should reflect environment");
-    
+    assert_eq!(
+        custom_value, 7200,
+        "TOKEN_EXPIRY_SECONDS should reflect environment"
+    );
+
     // Set invalid value and check we get default
     env::set_var("TOKEN_EXPIRY_SECONDS", "not_a_number");
     let invalid_value = get_token_expiry_seconds();
-    assert_eq!(invalid_value, 3540, "Invalid TOKEN_EXPIRY_SECONDS should return default");
-    
+    assert_eq!(
+        invalid_value, 3540,
+        "Invalid TOKEN_EXPIRY_SECONDS should return default"
+    );
+
     // Restore original value
     match original_value {
         Some(val) => env::set_var("TOKEN_EXPIRY_SECONDS", val),
@@ -226,16 +244,16 @@ fn test_config_from_dotenv_file() {
     // A more robust test would create a temporary .env file, but
     // that's complex for this test framework. So we just test the
     // functionality exists.
-    
+
     // Save the original environment variables
     let original_dotenv_path = env::var("DOTENV_PATH").ok();
-    
+
     // Set path to a file that doesn't exist (not going to test actual loading)
     env::set_var("DOTENV_PATH", "/tmp/nonexistent_dotenv_file");
-    
+
     // Just verify the dotenv loading code doesn't crash (it will fail quietly)
     let _ = Config::from_env();
-    
+
     // Restore original environment
     match original_dotenv_path {
         Some(val) => env::set_var("DOTENV_PATH", val),
@@ -247,7 +265,7 @@ fn test_config_from_dotenv_file() {
 #[test]
 fn test_api_url_constants() {
     use mcp_gmailcal::config::{GMAIL_API_BASE_URL, OAUTH_TOKEN_URL};
-    
+
     // Verify the constants have the expected values
     assert_eq!(GMAIL_API_BASE_URL, "https://gmail.googleapis.com/gmail/v1");
     assert_eq!(OAUTH_TOKEN_URL, "https://oauth2.googleapis.com/token");

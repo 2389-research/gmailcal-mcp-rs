@@ -33,7 +33,9 @@ fn create_mock_draft() -> DraftEmail {
         bcc: Some("bcc@example.com".to_string()),
         thread_id: Some("thread123456".to_string()),
         in_reply_to: Some("<original-message@example.com>".to_string()),
-        references: Some("<original-message@example.com> <another-message@example.com>".to_string()),
+        references: Some(
+            "<original-message@example.com> <another-message@example.com>".to_string(),
+        ),
     }
 }
 
@@ -80,69 +82,57 @@ fn create_mock_errors() -> (GmailApiError, CalendarApiError, PeopleApiError) {
     let gmail_error = GmailApiError::ApiError("Test Gmail API Error".to_string());
     let calendar_error = CalendarApiError::ApiError("Test Calendar API Error".to_string());
     let people_error = PeopleApiError::ApiError("Test People API Error".to_string());
-    
+
     (gmail_error, calendar_error, people_error)
 }
 
 // Benchmark email parsing
 fn email_parsing_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Email Parsing");
-    
+
     // Benchmark email serialization
     let email = create_mock_email();
     group.bench_function("email_serialization", |b| {
-        b.iter(|| {
-            black_box(serde_json::to_string(&email))
-        })
+        b.iter(|| black_box(serde_json::to_string(&email)))
     });
-    
+
     // Benchmark email deserialization
     let email_json = serde_json::to_string(&email).unwrap();
     group.bench_function("email_deserialization", |b| {
-        b.iter(|| {
-            black_box(serde_json::from_str::<EmailMessage>(&email_json))
-        })
+        b.iter(|| black_box(serde_json::from_str::<EmailMessage>(&email_json)))
     });
-    
+
     // Benchmark draft email serialization
     let draft = create_mock_draft();
     group.bench_function("draft_email_serialization", |b| {
-        b.iter(|| {
-            black_box(serde_json::to_string(&draft))
-        })
+        b.iter(|| black_box(serde_json::to_string(&draft)))
     });
-    
+
     // Benchmark calendar event serialization
     let event = create_mock_calendar_event();
     group.bench_function("calendar_event_serialization", |b| {
-        b.iter(|| {
-            black_box(serde_json::to_string(&event))
-        })
+        b.iter(|| black_box(serde_json::to_string(&event)))
     });
-    
+
     group.finish();
 }
 
 // Benchmark token operations
 fn token_operations_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Token Operations");
-    
+
     // Benchmark token manager creation
     let config = mock_config();
     group.bench_function("token_manager_creation", |b| {
-        b.iter(|| {
-            black_box(TokenManager::new(&config))
-        })
+        b.iter(|| black_box(TokenManager::new(&config)))
     });
-    
+
     // Benchmark token manager clone operation
     let token_manager = TokenManager::new(&config);
     group.bench_function("token_manager_clone", |b| {
-        b.iter(|| {
-            black_box(token_manager.clone())
-        })
+        b.iter(|| black_box(token_manager.clone()))
     });
-    
+
     // We can't directly benchmark token expiry check since expiry is private
     // Instead, we'll measure the overhead of creating a token manager with differing
     // initial states (with and without access token)
@@ -153,137 +143,118 @@ fn token_operations_benchmarks(c: &mut Criterion) {
         refresh_token: "test_refresh_token".to_string(),
         access_token: None,
     };
-    
+
     group.bench_function("token_manager_with_token", |b| {
-        b.iter(|| {
-            black_box(TokenManager::new(&config_with_token))
-        })
+        b.iter(|| black_box(TokenManager::new(&config_with_token)))
     });
-    
+
     group.bench_function("token_manager_without_token", |b| {
-        b.iter(|| {
-            black_box(TokenManager::new(&config_without_token))
-        })
+        b.iter(|| black_box(TokenManager::new(&config_without_token)))
     });
-    
+
     group.finish();
 }
 
 // Benchmark error handling
 fn error_handling_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Error Handling");
-    
+
     let (gmail_error, calendar_error, people_error) = create_mock_errors();
-    
+
     // Benchmark Gmail API error formatting
     group.bench_function("gmail_error_display", |b| {
-        b.iter(|| {
-            black_box(format!("{}", gmail_error))
-        })
+        b.iter(|| black_box(format!("{}", gmail_error)))
     });
-    
+
     // Benchmark Calendar API error formatting
     group.bench_function("calendar_error_display", |b| {
-        b.iter(|| {
-            black_box(format!("{}", calendar_error))
-        })
+        b.iter(|| black_box(format!("{}", calendar_error)))
     });
-    
+
     // Benchmark People API error formatting
     group.bench_function("people_error_display", |b| {
-        b.iter(|| {
-            black_box(format!("{}", people_error))
-        })
+        b.iter(|| black_box(format!("{}", people_error)))
     });
-    
+
     group.finish();
 }
 
 // Benchmark utility functions
 fn utility_functions_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Utility Functions");
-    
+
     // Benchmark base64 encoding
     let data = b"This is some test data for base64 encoding and decoding benchmarks";
     group.bench_function("base64_encoding", |b| {
-        b.iter(|| {
-            black_box(encode_base64_url_safe(data))
-        })
+        b.iter(|| black_box(encode_base64_url_safe(data)))
     });
-    
+
     // Benchmark base64 decoding
     let encoded = encode_base64_url_safe(data);
     group.bench_function("base64_decoding", |b| {
-        b.iter(|| {
-            black_box(decode_base64(&encoded))
-        })
+        b.iter(|| black_box(decode_base64(&encoded)))
     });
-    
+
     // Benchmark max results parsing with number
     let number_value = json!(10);
     group.bench_function("parse_max_results_number", |b| {
-        b.iter(|| {
-            black_box(parse_max_results(Some(number_value.clone()), 5))
-        })
+        b.iter(|| black_box(parse_max_results(Some(number_value.clone()), 5)))
     });
-    
+
     // Benchmark max results parsing with string
     let string_value = json!("15");
     group.bench_function("parse_max_results_string", |b| {
-        b.iter(|| {
-            black_box(parse_max_results(Some(string_value.clone()), 5))
-        })
+        b.iter(|| black_box(parse_max_results(Some(string_value.clone()), 5)))
     });
-    
+
     // Benchmark max results parsing with invalid value
     let invalid_value = json!(null);
     group.bench_function("parse_max_results_invalid", |b| {
-        b.iter(|| {
-            black_box(parse_max_results(Some(invalid_value.clone()), 5))
-        })
+        b.iter(|| black_box(parse_max_results(Some(invalid_value.clone()), 5)))
     });
-    
+
     group.finish();
 }
 
 // Benchmark search operations
 fn search_operations_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Search Operations");
-    
+
     // Benchmark searching through a list of emails (simulated with iteration)
-    let emails: Vec<EmailMessage> = (0..100).map(|i| {
-        let mut email = create_mock_email();
-        email.id = format!("msg{}", i);
-        email.subject = Some(format!("Subject {}", i));
-        email
-    }).collect();
-    
+    let emails: Vec<EmailMessage> = (0..100)
+        .map(|i| {
+            let mut email = create_mock_email();
+            email.id = format!("msg{}", i);
+            email.subject = Some(format!("Subject {}", i));
+            email
+        })
+        .collect();
+
     group.bench_function("search_emails_by_subject", |b| {
         b.iter(|| {
             black_box(
-                emails.iter().filter(|e| {
-                    e.subject.as_ref().map_or(false, |s| s.contains("50"))
-                }).count()
+                emails
+                    .iter()
+                    .filter(|e| e.subject.as_ref().map_or(false, |s| s.contains("50")))
+                    .count(),
             )
         })
     });
-    
+
     // Benchmark searching through a list of events (simulated with iteration)
-    let events: Vec<CalendarEvent> = (0..50).map(|i| {
-        let mut event = create_mock_calendar_event();
-        event.id = Some(format!("event{}", i));
-        event.summary = format!("Event Summary {}", i);
-        event
-    }).collect();
-    
-    group.bench_function("search_events_by_summary", |b| {
-        b.iter(|| {
-            black_box(
-                events.iter().filter(|e| e.summary.contains("25")).count()
-            )
+    let events: Vec<CalendarEvent> = (0..50)
+        .map(|i| {
+            let mut event = create_mock_calendar_event();
+            event.id = Some(format!("event{}", i));
+            event.summary = format!("Event Summary {}", i);
+            event
         })
+        .collect();
+
+    group.bench_function("search_events_by_summary", |b| {
+        b.iter(|| black_box(events.iter().filter(|e| e.summary.contains("25")).count()))
     });
-    
+
     group.finish();
 }
 
@@ -291,7 +262,7 @@ fn search_operations_benchmarks(c: &mut Criterion) {
 fn api_request_simulation_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("API Request Simulation");
     group.sample_size(100); // Reduce sample size for simulated API calls
-    
+
     // Simulate API latency by adding a small delay
     group.bench_function("simulate_api_request_success", |b| {
         b.iter_with_setup(
@@ -300,10 +271,10 @@ fn api_request_simulation_benchmarks(c: &mut Criterion) {
                 // Simulate processing before/after API call
                 let result: Result<String, GmailApiError> = Ok("API Response Data".to_string());
                 black_box(result)
-            }
+            },
         )
     });
-    
+
     // Simulate error handling after API failure
     group.bench_function("simulate_api_request_error", |b| {
         b.iter_with_setup(
@@ -312,13 +283,13 @@ fn api_request_simulation_benchmarks(c: &mut Criterion) {
                 // Simulate error handling
                 let error = GmailApiError::NetworkError("Connection timeout".to_string());
                 let result: Result<String, GmailApiError> = Err(error);
-                
+
                 // Common error handling pattern - provide fallback or handle error
                 black_box(result.unwrap_or_else(|e| format!("Error: {}", e)))
-            }
+            },
         )
     });
-    
+
     group.finish();
 }
 

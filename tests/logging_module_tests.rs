@@ -1,8 +1,8 @@
-use std::fs;
-use std::path::Path;
 use chrono::Local;
 use log::LevelFilter;
 use mcp_gmailcal::logging;
+use std::fs;
+use std::path::Path;
 use std::sync::Once;
 
 // Create a global flag to ensure we only initialize logging once in the entire test suite
@@ -26,7 +26,7 @@ fn test_setup_logging_with_memory_mode() {
     // Since we can only initialize logging once, simply test
     // that the function returns the correct string for memory mode
     let result = logging::setup_logging(LevelFilter::Info, Some("memory"));
-    
+
     // When run individually, the test should pass
     // But when run as part of tarpaulin or other runners that might have already initialized
     // the logger, we should skip the assertions that depend on successful initialization
@@ -44,29 +44,30 @@ fn test_setup_logging_with_memory_mode() {
 fn test_setup_logging_with_custom_log_file() {
     // Test custom log file creation
     let custom_log_file = "test_custom_log.log";
-    
+
     // Mock test the file path logic
     {
         let file_path = custom_log_file;
         assert_eq!(mock_log_file_path(Some(file_path)), file_path);
     }
-    
+
     // Clean up any existing file first
     clean_up_log_file(custom_log_file);
-    
+
     // Actual test of the logging functionality
     // Skip this part if running in tarpaulin where the logger might already be initialized
     if std::env::var("TARPAULIN").is_err() {
         // Create the log file
         let result = logging::setup_logging(LevelFilter::Info, Some(custom_log_file));
-        
+
         if result.is_ok() {
             let log_path = result.unwrap();
             assert_eq!(log_path, custom_log_file);
-            
+
             // Verify file exists and contains header
             if Path::new(custom_log_file).exists() {
-                let contains_header = file_contains_text(custom_log_file, "GMAIL MCP SERVER LOG - Started at");
+                let contains_header =
+                    file_contains_text(custom_log_file, "GMAIL MCP SERVER LOG - Started at");
                 assert!(contains_header);
             }
         } else {
@@ -77,7 +78,7 @@ fn test_setup_logging_with_custom_log_file() {
     } else {
         println!("Running under tarpaulin, skipping actual file creation to avoid conflicts");
     }
-    
+
     // Clean up (just in case)
     clean_up_log_file(custom_log_file);
 }
@@ -85,11 +86,11 @@ fn test_setup_logging_with_custom_log_file() {
 #[test]
 fn test_default_log_filename_format() {
     // Test the format of default log filenames without actually initializing logging
-    
+
     // Get the current date in the format used for log files
     let current_date = Local::now().format("%Y%m%d_%H").to_string();
     let expected_filename = format!("gmail_mcp_{}.log", current_date);
-    
+
     // Verify the filename format matches our expectation
     assert!(expected_filename.starts_with("gmail_mcp_"));
     assert!(expected_filename.ends_with(".log"));
@@ -103,13 +104,13 @@ fn test_invalid_log_file_path() {
         println!("Running under tarpaulin, skipping test to avoid logger initialization issues");
         return;
     }
-    
+
     // Test with an invalid file path to ensure proper error handling
     let invalid_path = "/nonexistent/directory/invalid.log";
-    
+
     // Here we expect an error because the directory doesn't exist
     let result = logging::setup_logging(LevelFilter::Info, Some(invalid_path));
-    
+
     if result.is_err() {
         // We got an error as expected for an invalid path
         assert!(true);
@@ -138,10 +139,10 @@ fn test_log_file_path_logic() {
     let specified_path = "specified.log";
     let result = mock_log_file_path(Some(specified_path));
     assert_eq!(result, specified_path);
-    
+
     // Test with default (None) log file
     let result = mock_log_file_path(None);
-    
+
     // Verify it contains the timestamp format
     let timestamp = Local::now().format("%Y%m%d_%H").to_string();
     assert!(result.contains(&timestamp));
@@ -156,22 +157,22 @@ fn test_append_mode_logic() {
     let test_file = "append_test.log";
     let initial_content = "Initial content\n";
     fs::write(test_file, initial_content).expect("Failed to write test file");
-    
+
     // Append to the file
     let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(test_file)
         .expect("Failed to open file in append mode");
-    
+
     use std::io::Write;
     writeln!(file, "Appended content").expect("Failed to write to file");
-    
+
     // Read the file and verify both contents are present
     let content = fs::read_to_string(test_file).expect("Failed to read file");
     assert!(content.contains(initial_content));
     assert!(content.contains("Appended content"));
-    
+
     // Clean up
     clean_up_log_file(test_file);
 }
@@ -188,7 +189,7 @@ fn test_log_level_mapping() {
         ("trace", LevelFilter::Trace),
         ("off", LevelFilter::Off),
     ];
-    
+
     // Verify each mapping
     for (level_str, level_filter) in level_mappings.iter() {
         match *level_str {

@@ -1,11 +1,11 @@
+use mcp_gmailcal::config::Config;
+use mcp_gmailcal::errors::GmailApiError;
 /// Gmail API Integration Tests Module
 ///
 /// This module contains tests for the Gmail API functionality,
 /// including draft creation, connection checking, and label management.
 ///
 use mcp_gmailcal::gmail_api::{DraftEmail, GmailService};
-use mcp_gmailcal::config::Config;
-use mcp_gmailcal::errors::GmailApiError;
 use serde_json::json;
 use std::env;
 

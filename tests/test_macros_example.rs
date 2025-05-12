@@ -78,12 +78,12 @@ mod tests {
         // Using assert_ok to test a function that should succeed
         let result = assert_ok!(divide(10, 2));
         assert_eq!(result, 5);
-        
+
         // Using assert_ok with a custom message
         let user = assert_ok!(find_user("1"), "Failed to find user");
         assert_eq!(user, "Alice");
     }
-    
+
     #[test]
     fn test_assert_err_macro() {
         // Using assert_err to test a function that should fail
@@ -92,7 +92,7 @@ mod tests {
             TestError::InvalidInput(msg) => assert_eq!(msg, "Cannot divide by zero"),
             _ => panic!("Expected InvalidInput error"),
         }
-        
+
         // Using assert_err with a custom message
         let error = assert_err!(find_user("999"), "Expected user not found error");
         match error {
@@ -100,13 +100,13 @@ mod tests {
             _ => panic!("Expected NotFound error"),
         }
     }
-    
+
     #[test]
     fn test_assert_err_variant_macro() {
         // Using assert_err_variant to test error type
         assert_err_variant!(divide(10, 0), TestError::InvalidInput(_));
         assert_err_variant!(find_user("999"), TestError::NotFound(_));
-        
+
         // Using assert_err_variant with a custom message
         assert_err_variant!(
             find_user("999"),
@@ -114,7 +114,7 @@ mod tests {
             "Expected NotFound error variant"
         );
     }
-    
+
     #[test]
     fn test_with_env_vars_macro() {
         // Test with environment variables
@@ -125,11 +125,11 @@ mod tests {
                 assert_eq!(get_api_key(), "test_value");
             }
         );
-        
+
         // Environment variables are reset after the block
         assert_ne!(get_api_key(), "test_value");
     }
-    
+
     #[test]
     fn test_test_cases_macro() {
         // Test a function with multiple inputs and expected outputs
@@ -142,31 +142,31 @@ mod tests {
             ("negative odd", -7, false)
         );
     }
-    
+
     #[test]
     fn test_with_mock_time_macro() {
         // Test with mocked time
         with_mock_time!(1617235200 => |time| {
             assert_eq!(format_time(time), "2021-04-01");
         });
-        
+
         // Test with time advancement
         let (result1, result2) = with_mock_time!(1617235200, 86400 => |time| {
             format_time(time)
         });
-        
+
         assert_eq!(result1, "2021-04-01");
         assert_eq!(result2, "2021-04-02"); // Advanced by 1 day (86400 seconds)
     }
-    
+
     #[test]
     fn test_assert_contains_macro() {
         let numbers = vec![1, 2, 3, 4, 5];
-        
+
         // Test that the collection contains an item matching a predicate
         assert_contains!(numbers, |&n| n == 3);
         assert_contains!(numbers, |&n| n > 4);
-        
+
         // Test with a custom message
         assert_contains!(
             numbers,

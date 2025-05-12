@@ -1,10 +1,13 @@
-use crate::config::{get_token_expiry_buffer_seconds, get_token_expiry_seconds, get_token_refresh_threshold_seconds, Config, OAUTH_TOKEN_URL};
+use crate::config::{
+    get_token_expiry_buffer_seconds, get_token_expiry_seconds, get_token_refresh_threshold_seconds,
+    Config, OAUTH_TOKEN_URL,
+};
 use crate::errors::{GmailApiError, GmailResult};
 use log::{debug, error, info, warn};
 use reqwest::Client;
 use serde::Deserialize;
-use std::time::{Duration, SystemTime};
 use std::cmp::min;
+use std::time::{Duration, SystemTime};
 
 // Alias for backward compatibility within this module
 type Result<T> = GmailResult<T>;
@@ -41,62 +44,62 @@ impl TokenManager {
     pub(crate) fn get_access_token(&self) -> &str {
         &self.access_token
     }
-    
+
     #[cfg(test)]
     pub(crate) fn get_expiry(&self) -> SystemTime {
         self.expiry
     }
-    
+
     #[cfg(test)]
     pub(crate) fn get_refresh_threshold(&self) -> u64 {
         get_token_refresh_threshold_seconds()
     }
-    
+
     #[cfg(test)]
     pub(crate) fn get_expiry_buffer(&self) -> u64 {
         get_token_expiry_buffer_seconds()
     }
-    
+
     #[cfg(test)]
     pub(crate) fn get_retry_count(&self) -> u8 {
         self.retry_count
     }
-    
+
     #[cfg(test)]
     pub(crate) fn get_max_retries(&self) -> u8 {
         self.max_retries
     }
-    
+
     #[cfg(test)]
     pub(crate) fn get_base_retry_delay_ms(&self) -> u64 {
         self.base_retry_delay_ms
     }
-    
+
     #[cfg(test)]
     pub(crate) fn set_access_token(&mut self, token: String) {
         self.access_token = token;
     }
-    
+
     #[cfg(test)]
     pub(crate) fn set_expiry(&mut self, expiry: SystemTime) {
         self.expiry = expiry;
     }
-    
+
     #[cfg(test)]
     pub(crate) fn increment_retry_count(&mut self) {
         self.retry_count += 1;
     }
-    
+
     #[cfg(test)]
     pub(crate) fn set_retry_count(&mut self, count: u8) {
         self.retry_count = count;
     }
-    
+
     #[cfg(test)]
     pub(crate) fn set_max_retries(&mut self, max: u8) {
         self.max_retries = max;
     }
-    
+
     #[cfg(test)]
     pub(crate) fn reset_retry_count(&mut self) {
         self.retry_count = 0;
@@ -133,7 +136,8 @@ impl TokenManager {
                 Ok(Some(cached_token)) => {
                     if cache.is_token_valid(&cached_token) {
                         info!("Loaded valid token from cache");
-                        let expiry_system_time = SystemTime::UNIX_EPOCH + Duration::from_secs(cached_token.expiry_timestamp);
+                        let expiry_system_time = SystemTime::UNIX_EPOCH
+                            + Duration::from_secs(cached_token.expiry_timestamp);
                         (cached_token.access_token, expiry_system_time, true)
                     } else {
                         debug!("Cached token exists but is expired or nearly expired");
@@ -179,10 +183,10 @@ impl TokenManager {
         };
 
         debug!(
-            "Creating TokenManager with refresh threshold: {}s, expiry buffer: {}s", 
+            "Creating TokenManager with refresh threshold: {}s, expiry buffer: {}s",
             config.token_refresh_threshold, config.token_expiry_buffer
         );
-        
+
         if loaded_from_cache {
             debug!("Using cached token, expires at {:?}", expiry);
         } else if !access_token.is_empty() {
@@ -198,7 +202,7 @@ impl TokenManager {
             client_id: config.client_id.clone(),
             client_secret: config.client_secret.clone(),
             retry_count: 0,
-            max_retries: 5,  // Default maximum retries
+            max_retries: 5,            // Default maximum retries
             base_retry_delay_ms: 1000, // Start with 1 second delay
             cache,
         }
@@ -211,28 +215,32 @@ impl TokenManager {
             Err(_) => -1, // Token has expired
         }
     }
-    
+
     // Check if token needs refresh based on refresh threshold
     fn needs_refresh(&self) -> bool {
         let refresh_threshold = get_token_refresh_threshold_seconds();
         let seconds_until_expiry = self.time_until_expiry();
-        
+
         if seconds_until_expiry < 0 {
             debug!("Token has expired");
             return true;
         }
-        
+
         if seconds_until_expiry < refresh_threshold as i64 {
-            debug!("Token will expire in {} seconds (refresh threshold: {} seconds), needs refresh", 
-                   seconds_until_expiry, refresh_threshold);
+            debug!(
+                "Token will expire in {} seconds (refresh threshold: {} seconds), needs refresh",
+                seconds_until_expiry, refresh_threshold
+            );
             return true;
         }
-        
-        debug!("Token valid for {} more seconds (refresh threshold: {} seconds), no refresh needed", 
-               seconds_until_expiry, refresh_threshold);
+
+        debug!(
+            "Token valid for {} more seconds (refresh threshold: {} seconds), no refresh needed",
+            seconds_until_expiry, refresh_threshold
+        );
         false
     }
-    
+
     // Reset retry counter after successful operation - accessible both from tests and internal code
     #[cfg(not(test))]
     fn reset_retry_count(&mut self) {
@@ -241,22 +249,25 @@ impl TokenManager {
             self.retry_count = 0;
         }
     }
-    
+
     // Calculate exponential backoff delay based on retry count
     fn get_backoff_delay(&self) -> Duration {
         if self.retry_count == 0 {
             return Duration::from_millis(0);
         }
-        
+
         // Calculate delay with exponential backoff: base_delay * 2^(retry_count-1)
         // Example: 1000ms base -> 1s, 2s, 4s, 8s, 16s
         let exponent = min(self.retry_count - 1, 16); // Prevent potential overflow
         let delay_ms = self.base_retry_delay_ms * (1u64 << exponent);
-        
+
         // Cap maximum delay at 64 seconds
         let capped_delay_ms = min(delay_ms, 64_000);
-        
-        debug!("Backoff delay for retry {}: {}ms", self.retry_count, capped_delay_ms);
+
+        debug!(
+            "Backoff delay for retry {}: {}ms",
+            self.retry_count, capped_delay_ms
+        );
         Duration::from_millis(capped_delay_ms)
     }
 
@@ -264,11 +275,10 @@ impl TokenManager {
         // Log token expiration details
         let seconds_until_expiry = self.time_until_expiry();
         let has_token = !self.access_token.is_empty();
-        
+
         debug!(
             "Token status check - have token: {}, expires in: {} seconds",
-            has_token,
-            seconds_until_expiry
+            has_token, seconds_until_expiry
         );
 
         // Check if current token is still valid and not near expiration
@@ -348,12 +358,7 @@ impl TokenManager {
         }
 
         // Send token refresh request
-        let response = match client
-            .post(OAUTH_TOKEN_URL)
-            .form(&params)
-            .send()
-            .await
-        {
+        let response = match client.post(OAUTH_TOKEN_URL).form(&params).send().await {
             Ok(resp) => resp,
             Err(e) => {
                 warn!("Network error during token refresh: {}", e);
@@ -374,13 +379,13 @@ impl TokenManager {
                 "Token refresh failed. Status: {}, Error: {}",
                 status, error_text
             );
-            
+
             // Some errors shouldn't be retried (e.g., invalid_grant)
             if error_text.contains("invalid_grant") {
                 error!("Invalid grant error detected, not retrying");
                 self.retry_count = self.max_retries; // Prevent further retries
             }
-            
+
             return Err(GmailApiError::AuthError(format!(
                 "Failed to refresh token. Status: {}, Error: {}",
                 status, error_text
@@ -416,7 +421,7 @@ impl TokenManager {
 
         // Update token and expiry
         self.access_token = token_data.access_token.clone();
-        
+
         // Apply buffer to expiry time from config
         let buffer = get_token_expiry_buffer_seconds();
         let expires_in = token_data.expires_in.saturating_sub(buffer);
@@ -439,15 +444,13 @@ impl TokenManager {
 
         info!(
             "Token refreshed successfully, valid for {} seconds (with {}s buffer)",
-            expires_in,
-            buffer
+            expires_in, buffer
         );
         debug!(
             "Token will be refreshed after {} seconds (threshold: {}s)",
-            effective_lifetime,
-            refresh_threshold
+            effective_lifetime, refresh_threshold
         );
-        
+
         // Securely log truncated token - never log the full token
         if log::log_enabled!(log::Level::Debug) {
             let token_trunc = if self.access_token.len() > 10 {

@@ -1,7 +1,14 @@
 /target
-.env 
+.env
 credentials.json
 *.log
 output.txt
 claude_desktop_config.json
 .env*
+
+# Test and coverage reports
+lcov.info
+*.html
+tarpaulin-report.html
+
+**/.claude/settings.local.json

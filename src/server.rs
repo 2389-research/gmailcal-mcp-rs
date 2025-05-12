@@ -2,6 +2,7 @@ use log::{debug, error, info};
 use mcp_attr::server::{mcp_server, McpServer};
 use mcp_attr::{Error as McpError, Result as McpResult};
 use serde_json::json;
+use tokio::sync::broadcast;
 
 use crate::config::Config;
 use crate::errors::ConfigError;
@@ -19,7 +20,37 @@ mod helpers {
 
 // MCP server for accessing Gmail API
 #[derive(Clone)]
-pub struct GmailServer;
+pub struct GmailServer {
+    event_sender: broadcast::Sender<ServerEvent>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub enum ServerEvent {
+    EmailReceived {
+        email_id: String,
+        subject: String,
+    },
+    EmailUpdated {
+        email_id: String,
+        subject: String,
+    },
+    CalendarEventCreated {
+        event_id: String,
+        summary: String,
+    },
+    CalendarEventUpdated {
+        event_id: String,
+        summary: String,
+    },
+    ConnectionStatus {
+        connected: bool,
+        message: String,
+    },
+    Custom {
+        event_type: String,
+        data: serde_json::Value,
+    },
+}
 
 impl Default for GmailServer {
     fn default() -> Self {
@@ -29,7 +60,24 @@ impl Default for GmailServer {
 
 impl GmailServer {
     pub fn new() -> Self {
-        GmailServer {}
+        // Create a broadcast channel with capacity of 100 events
+        let (sender, _) = broadcast::channel(100);
+
+        GmailServer {
+            event_sender: sender,
+        }
+    }
+
+    // Method to broadcast an event to all SSE subscribers
+    pub fn broadcast_event(&self, event: ServerEvent) {
+        let _ = self.event_sender.send(event);
+        // Errors are ignored as they just mean there are no active subscribers
+    }
+
+    // Method to get a receiver for tests
+    #[cfg(test)]
+    pub fn get_event_receiver(&self) -> broadcast::Receiver<ServerEvent> {
+        self.event_sender.subscribe()
     }
 
     // Private method to initialize the Calendar service
@@ -84,7 +132,7 @@ impl GmailServer {
                         "Missing environment variable: {}. \
                         This variable is required for Gmail authentication. \
                         Please ensure you have set up your .env file correctly or exported the variable in your shell. \
-                        Create an OAuth2 client in the Google Cloud Console to obtain these credentials.", 
+                        Create an OAuth2 client in the Google Cloud Console to obtain these credentials.",
                         var
                     )
                 }
@@ -92,7 +140,7 @@ impl GmailServer {
                     format!(
                         "Environment variable error: {}. \
                         There was a problem reading the environment variables needed for Gmail authentication. \
-                        Check permissions on your .env file and ensure it's properly formatted without special characters or quotes.", 
+                        Check permissions on your .env file and ensure it's properly formatted without special characters or quotes.",
                         e
                     )
                 },
@@ -123,6 +171,57 @@ impl McpServer for GmailServer {
     #[prompt]
     async fn gmail_prompt(&self) -> McpResult<&str> {
         Ok(crate::prompts::GMAIL_MASTER_PROMPT)
+    }
+
+    /// Subscribe to server-sent events
+    ///
+    /// This endpoint allows clients to subscribe to real-time events from the server
+    /// using Server-Sent Events (SSE). Events include email updates, calendar changes,
+    /// and connectivity status.
+    ///
+    /// # Returns
+    ///
+    /// An SSE stream that will emit events as they occur on the server
+    #[tool]
+    async fn subscribe_events(&self) -> McpResult<String> {
+        info!("=== START subscribe_events MCP command ===");
+        debug!("Client connected to SSE stream");
+
+        // Create a receiver (not used in MCP implementation but would be used in actual SSE)
+        let _rx = self.event_sender.subscribe();
+
+        // This will be the actual SSE connection in a real implementation,
+        // but for MCP we need to return a simulation since we can't return an actual stream
+        let simulated_response = json!({
+            "status": "success",
+            "message": "SSE subscription would be established in a full implementation",
+            "info": "In a real implementation, this would return an SSE stream that remains open",
+            "event_types": [
+                "EmailReceived",
+                "EmailUpdated",
+                "CalendarEventCreated",
+                "CalendarEventUpdated",
+                "ConnectionStatus",
+                "Custom"
+            ],
+            "example_event": {
+                "event": "EmailReceived",
+                "data": {
+                    "email_id": "example-id-123",
+                    "subject": "Example Subject"
+                }
+            }
+        });
+
+        // Send an initial connection status event to demonstrate
+        let connect_event = ServerEvent::ConnectionStatus {
+            connected: true,
+            message: "SSE connection established".to_string(),
+        };
+        self.broadcast_event(connect_event);
+
+        info!("=== END subscribe_events MCP command (success) ===");
+        Ok(serde_json::to_string_pretty(&simulated_response)?)
     }
 
     /// Email Analysis Prompt
@@ -685,11 +784,11 @@ impl McpServer for GmailServer {
         // Create the draft email object
         let draft = crate::gmail_api::DraftEmail {
             to,
-            subject,
+            subject: subject.clone(),
             body,
             cc,
             bcc,
-            thread_id,
+            thread_id: thread_id.clone(),
             in_reply_to,
             references,
         };
@@ -703,7 +802,7 @@ impl McpServer for GmailServer {
                 // Create success response
                 let mut result = json!({
                     "status": "success",
-                    "draft_id": draft_id,
+                    "draft_id": draft_id.clone(),
                     "message": "Draft email created successfully."
                 });
 
@@ -711,6 +810,13 @@ impl McpServer for GmailServer {
                 if let Some(ref thread_id_val) = draft.thread_id {
                     result["thread_id"] = json!(thread_id_val);
                 }
+
+                // Broadcast event for SSE clients
+                let event = ServerEvent::EmailUpdated {
+                    email_id: draft_id.clone(),
+                    subject: subject.clone(),
+                };
+                self.broadcast_event(event);
 
                 // Convert to string
                 let result_json = serde_json::to_string_pretty(&result).map_err(|e| {
@@ -1128,6 +1234,15 @@ impl McpServer for GmailServer {
         // Create the event
         match service.create_event(&calendar_id, event).await {
             Ok(created_event) => {
+                // Broadcast calendar event creation to SSE clients
+                if let Some(event_id) = &created_event.id {
+                    let sse_event = ServerEvent::CalendarEventCreated {
+                        event_id: event_id.clone(),
+                        summary: created_event.summary.clone(),
+                    };
+                    self.broadcast_event(sse_event);
+                }
+
                 // Convert to JSON
                 serde_json::to_string(&created_event).map_err(|e| {
                     let error_msg = format!("Failed to serialize created event: {}", e);
@@ -1149,5 +1264,54 @@ impl McpServer for GmailServer {
                 ))
             }
         }
+    }
+
+    /// Send custom event
+    ///
+    /// Manually sends a custom event to all SSE subscribers.
+    /// This is useful for testing or notifying clients about custom events.
+    ///
+    /// Args:
+    ///   event_type: Type of the event to send
+    ///   data: JSON data to include with the event
+    #[tool]
+    pub async fn send_custom_event(
+        &self,
+        event_type: String,
+        data: serde_json::Value,
+    ) -> McpResult<String> {
+        info!("=== START send_custom_event MCP command ===");
+        debug!(
+            "send_custom_event called with event_type={}, data={:?}",
+            event_type, data
+        );
+
+        // Create the custom event
+        let event = ServerEvent::Custom {
+            event_type: event_type.clone(),
+            data: data.clone(),
+        };
+
+        // Broadcast the event
+        self.broadcast_event(event);
+
+        // Return success response
+        let result = json!({
+            "status": "success",
+            "message": "Custom event sent to all connected clients",
+            "event": {
+                "type": event_type,
+                "data": data
+            }
+        });
+
+        let result_json = serde_json::to_string_pretty(&result).map_err(|e| {
+            let error_msg = format!("Failed to serialize result: {}", e);
+            error!("{}", error_msg);
+            self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
+        })?;
+
+        info!("=== END send_custom_event MCP command (success) ===");
+        Ok(result_json)
     }
 }

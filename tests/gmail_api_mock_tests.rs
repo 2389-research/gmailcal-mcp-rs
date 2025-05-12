@@ -1,6 +1,6 @@
 /// Gmail API Mock Tests
 ///
-/// This module tests the Gmail API functionality using mock objects 
+/// This module tests the Gmail API functionality using mock objects
 /// to avoid the tokio runtime issues with mockito.
 ///
 use mcp_gmailcal::errors::GmailApiError;
@@ -31,14 +31,14 @@ mod tests {
     fn test_check_connection_success() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Setup expectations
         mock.expect_check_connection()
             .returning(|| Ok(("test@example.com".to_string(), 123)));
-        
+
         // Test the function
         let result = mock.check_connection();
-        
+
         // Verify result
         assert!(result.is_ok());
         let (email, count) = result.unwrap();
@@ -50,30 +50,33 @@ mod tests {
     fn test_check_connection_failure() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Setup expectations for failure
-        mock.expect_check_connection()
-            .returning(|| Err(GmailApiError::AuthError("Authentication failed".to_string())));
-        
+        mock.expect_check_connection().returning(|| {
+            Err(GmailApiError::AuthError(
+                "Authentication failed".to_string(),
+            ))
+        });
+
         // Test the function
         let result = mock.check_connection();
-        
+
         // Verify error
         assert!(result.is_err());
         match result {
             Err(GmailApiError::AuthError(msg)) => {
                 assert_eq!(msg, "Authentication failed");
             }
-            _ => panic!("Expected AuthError")
+            _ => panic!("Expected AuthError"),
         }
     }
-    
+
     // Test list_labels functionality
     #[test]
     fn test_list_labels_success() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Create expected labels JSON
         let labels_json = json!({
             "labels": [
@@ -82,15 +85,16 @@ mod tests {
                 {"id": "TRASH", "name": "Trash", "type": "system"},
                 {"id": "CATEGORY_PERSONAL", "name": "Personal", "type": "user"}
             ]
-        }).to_string();
-        
+        })
+        .to_string();
+
         // Setup expectations
         mock.expect_list_labels()
             .returning(move || Ok(labels_json.clone()));
-        
+
         // Test the function
         let result = mock.list_labels();
-        
+
         // Verify result
         assert!(result.is_ok());
         let labels = result.unwrap();
@@ -102,34 +106,34 @@ mod tests {
     fn test_list_labels_failure() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Setup expectations for failure
         mock.expect_list_labels()
             .returning(|| Err(GmailApiError::NetworkError("Network error".to_string())));
-        
+
         // Test the function
         let result = mock.list_labels();
-        
+
         // Verify error
         assert!(result.is_err());
         match result {
             Err(GmailApiError::NetworkError(msg)) => {
                 assert_eq!(msg, "Network error");
             }
-            _ => panic!("Expected NetworkError")
+            _ => panic!("Expected NetworkError"),
         }
     }
-    
+
     // Test create_draft functionality
     #[test]
     fn test_create_draft_success() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Setup expectations
         mock.expect_create_draft()
             .returning(|_| Ok("draft123".to_string()));
-        
+
         // Create a draft email
         let draft = DraftEmail {
             to: "recipient@example.com".to_string(),
@@ -141,10 +145,10 @@ mod tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         // Test the function
         let result = mock.create_draft(&draft);
-        
+
         // Verify result
         assert!(result.is_ok());
         let draft_id = result.unwrap();
@@ -155,20 +159,20 @@ mod tests {
     fn test_create_draft_with_all_fields() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Setup expectations - we'll check that the draft has all fields
         mock.expect_create_draft()
             .withf(|draft| {
-                draft.to == "recipient@example.com" && 
-                draft.subject == "Test Draft with All Fields" &&
-                draft.cc.is_some() &&
-                draft.bcc.is_some() &&
-                draft.thread_id.is_some() &&
-                draft.in_reply_to.is_some() &&
-                draft.references.is_some()
+                draft.to == "recipient@example.com"
+                    && draft.subject == "Test Draft with All Fields"
+                    && draft.cc.is_some()
+                    && draft.bcc.is_some()
+                    && draft.thread_id.is_some()
+                    && draft.in_reply_to.is_some()
+                    && draft.references.is_some()
             })
             .returning(|_| Ok("draft456".to_string()));
-        
+
         // Create a draft email with all fields
         let draft = DraftEmail {
             to: "recipient@example.com".to_string(),
@@ -180,10 +184,10 @@ mod tests {
             in_reply_to: Some("message123".to_string()),
             references: Some("reference123".to_string()),
         };
-        
+
         // Test the function
         let result = mock.create_draft(&draft);
-        
+
         // Verify result
         assert!(result.is_ok());
         let draft_id = result.unwrap();
@@ -194,11 +198,11 @@ mod tests {
     fn test_create_draft_failure() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Setup expectations
         mock.expect_create_draft()
             .returning(|_| Err(GmailApiError::ApiError("API error".to_string())));
-        
+
         // Create a draft email
         let draft = DraftEmail {
             to: "recipient@example.com".to_string(),
@@ -210,26 +214,26 @@ mod tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         // Test the function
         let result = mock.create_draft(&draft);
-        
+
         // Verify error
         assert!(result.is_err());
         match result {
             Err(GmailApiError::ApiError(msg)) => {
                 assert_eq!(msg, "API error");
             }
-            _ => panic!("Expected ApiError")
+            _ => panic!("Expected ApiError"),
         }
     }
-    
+
     // Test get_message_details functionality
     #[test]
     fn test_get_message_details_success() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Create a sample email message
         let email = EmailMessage {
             id: "msg123".to_string(),
@@ -242,15 +246,15 @@ mod tests {
             body_text: Some("This is the message body.".to_string()),
             body_html: Some("<html><body>This is the HTML message body.</body></html>".to_string()),
         };
-        
+
         // Setup expectations
         mock.expect_get_message_details()
             .with(eq("msg123"))
             .returning(move |_| Ok(email.clone()));
-        
+
         // Test the function
         let result = mock.get_message_details("msg123");
-        
+
         // Verify result
         assert!(result.is_ok());
         let message = result.unwrap();
@@ -266,31 +270,35 @@ mod tests {
     fn test_get_message_details_failure() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Setup expectations
         mock.expect_get_message_details()
             .with(eq("not_found"))
-            .returning(|_| Err(GmailApiError::MessageRetrievalError("Message not found".to_string())));
-        
+            .returning(|_| {
+                Err(GmailApiError::MessageRetrievalError(
+                    "Message not found".to_string(),
+                ))
+            });
+
         // Test the function
         let result = mock.get_message_details("not_found");
-        
+
         // Verify error
         assert!(result.is_err());
         match result {
             Err(GmailApiError::MessageRetrievalError(msg)) => {
                 assert_eq!(msg, "Message not found");
             }
-            _ => panic!("Expected MessageRetrievalError")
+            _ => panic!("Expected MessageRetrievalError"),
         }
     }
-    
+
     // Test list_messages functionality
     #[test]
     fn test_list_messages_success() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Create sample email messages
         let messages = vec![
             EmailMessage {
@@ -316,14 +324,14 @@ mod tests {
                 body_html: None,
             },
         ];
-        
+
         // Setup expectations - use any() matcher instead of eq() for lifetimes
         mock.expect_list_messages()
             .returning(move |_, _| Ok(messages.clone()));
-        
+
         // Test the function
         let result = mock.list_messages(10, None);
-        
+
         // Verify result
         assert!(result.is_ok());
         let messages = result.unwrap();
@@ -336,35 +344,32 @@ mod tests {
     fn test_list_messages_with_query() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Create sample email message for the query result
-        let messages = vec![
-            EmailMessage {
-                id: "msg3".to_string(),
-                thread_id: "thread3".to_string(),
-                subject: Some("Important Message".to_string()),
-                from: Some("important@example.com".to_string()),
-                to: Some("recipient@example.com".to_string()),
-                date: Some("2025-01-03T12:00:00Z".to_string()),
-                snippet: Some("Important message snippet...".to_string()),
-                body_text: Some("Important message body.".to_string()),
-                body_html: None,
-            },
-        ];
-        
+        let messages = vec![EmailMessage {
+            id: "msg3".to_string(),
+            thread_id: "thread3".to_string(),
+            subject: Some("Important Message".to_string()),
+            from: Some("important@example.com".to_string()),
+            to: Some("recipient@example.com".to_string()),
+            date: Some("2025-01-03T12:00:00Z".to_string()),
+            snippet: Some("Important message snippet...".to_string()),
+            body_text: Some("Important message body.".to_string()),
+            body_html: None,
+        }];
+
         // Setup expectations for a query - without using eq() for lifetime issues
-        mock.expect_list_messages()
-            .returning(move |max, query| {
-                if max == 10 && query == Some("important") {
-                    Ok(messages.clone())
-                } else {
-                    Ok(vec![])
-                }
-            });
-        
+        mock.expect_list_messages().returning(move |max, query| {
+            if max == 10 && query == Some("important") {
+                Ok(messages.clone())
+            } else {
+                Ok(vec![])
+            }
+        });
+
         // Test the function with a query
         let result = mock.list_messages(10, Some("important"));
-        
+
         // Verify result
         assert!(result.is_ok());
         let messages = result.unwrap();
@@ -377,21 +382,21 @@ mod tests {
     fn test_list_messages_failure() {
         // Create mock client
         let mut mock = MockGmailClient::new();
-        
+
         // Setup expectations
         mock.expect_list_messages()
             .returning(|_, _| Err(GmailApiError::ApiError("API error".to_string())));
-        
+
         // Test the function
         let result = mock.list_messages(10, None);
-        
+
         // Verify error
         assert!(result.is_err());
         match result {
             Err(GmailApiError::ApiError(msg)) => {
                 assert_eq!(msg, "API error");
             }
-            _ => panic!("Expected ApiError")
+            _ => panic!("Expected ApiError"),
         }
     }
 }

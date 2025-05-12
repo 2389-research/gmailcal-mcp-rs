@@ -4,9 +4,9 @@
 /// focusing on email operations, message parsing, and MIME handling.
 use base64;
 use chrono::{DateTime, TimeZone, Utc};
-use mockall::mock;
 use mcp_gmailcal::errors::GmailApiError;
 use mcp_gmailcal::gmail_api::{DraftEmail, EmailMessage, GmailService};
+use mockall::mock;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
@@ -14,7 +14,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 // Define a proper interface for GmailClient that we can mock
 trait GmailClientInterface {
-    fn list_messages(&self, max_results: u32, query: Option<&str>) -> Result<Vec<EmailMessage>, GmailApiError>;
+    fn list_messages(
+        &self,
+        max_results: u32,
+        query: Option<&str>,
+    ) -> Result<Vec<EmailMessage>, GmailApiError>;
     fn get_message_details(&self, message_id: &str) -> Result<EmailMessage, GmailApiError>;
     fn create_draft(&self, draft: &DraftEmail) -> Result<String, GmailApiError>;
     fn list_labels(&self) -> Result<Value, GmailApiError>;
@@ -31,7 +35,11 @@ impl MockableGmailClient {
         Self { client }
     }
 
-    fn list_messages(&self, max_results: u32, query: Option<&str>) -> Result<Vec<EmailMessage>, GmailApiError> {
+    fn list_messages(
+        &self,
+        max_results: u32,
+        query: Option<&str>,
+    ) -> Result<Vec<EmailMessage>, GmailApiError> {
         let client = self.client.lock().unwrap();
         client.list_messages(max_results, query)
     }
@@ -58,7 +66,14 @@ impl MockableGmailClient {
 }
 
 // Helper functions to create test data
-fn create_test_email(id: &str, subject: &str, from: &str, to: &str, body_text: &str, body_html: Option<&str>) -> EmailMessage {
+fn create_test_email(
+    id: &str,
+    subject: &str,
+    from: &str,
+    to: &str,
+    body_text: &str,
+    body_html: Option<&str>,
+) -> EmailMessage {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -120,7 +135,7 @@ fn create_raw_message_response(
     body_html: Option<&str>,
 ) -> Value {
     let mut parts = Vec::new();
-    
+
     // Add text part
     parts.push(json!({
         "mimeType": "text/plain",
@@ -131,7 +146,7 @@ fn create_raw_message_response(
             "size": body_text.len()
         }
     }));
-    
+
     // Add HTML part if provided
     if let Some(html) = body_html {
         parts.push(json!({
@@ -144,7 +159,7 @@ fn create_raw_message_response(
             }
         }));
     }
-    
+
     // Create headers
     let headers = vec![
         json!({"name": "From", "value": from}),
@@ -152,7 +167,7 @@ fn create_raw_message_response(
         json!({"name": "Subject", "value": subject}),
         json!({"name": "Date", "value": format!("{} GMT", Utc::now().format("%a, %d %b %Y %H:%M:%S"))}),
     ];
-    
+
     // Create payload
     let payload = if body_html.is_some() {
         // Multipart message
@@ -174,7 +189,7 @@ fn create_raw_message_response(
             }
         })
     };
-    
+
     // Create full message
     json!({
         "id": id,
@@ -221,16 +236,16 @@ impl MockGmailClient {
                 None,
             ),
         ];
-        
+
         let labels = create_test_labels();
-        
+
         Self {
             emails,
             labels,
             should_fail: false,
         }
     }
-    
+
     fn with_failure(mut self) -> Self {
         self.should_fail = true;
         self
@@ -238,84 +253,119 @@ impl MockGmailClient {
 }
 
 impl GmailClientInterface for MockGmailClient {
-    fn list_messages(&self, max_results: u32, query: Option<&str>) -> Result<Vec<EmailMessage>, GmailApiError> {
+    fn list_messages(
+        &self,
+        max_results: u32,
+        query: Option<&str>,
+    ) -> Result<Vec<EmailMessage>, GmailApiError> {
         if self.should_fail {
-            return Err(GmailApiError::ApiError("Failed to list messages".to_string()));
+            return Err(GmailApiError::ApiError(
+                "Failed to list messages".to_string(),
+            ));
         }
-        
+
         // Filter by query if provided
         let filtered_emails = match query {
             Some(q) => {
                 let q = q.to_lowercase();
-                self.emails.iter()
+                self.emails
+                    .iter()
                     .filter(|email| {
-                        let subject = email.subject.as_ref().map_or("", |s| s.as_str()).to_lowercase();
-                        let body = email.body_text.as_ref().map_or("", |s| s.as_str()).to_lowercase();
+                        let subject = email
+                            .subject
+                            .as_ref()
+                            .map_or("", |s| s.as_str())
+                            .to_lowercase();
+                        let body = email
+                            .body_text
+                            .as_ref()
+                            .map_or("", |s| s.as_str())
+                            .to_lowercase();
                         subject.contains(&q) || body.contains(&q)
                     })
                     .cloned()
                     .collect::<Vec<EmailMessage>>()
-            },
+            }
             None => self.emails.clone(),
         };
-        
+
         // Apply max_results
-        let limited_emails = filtered_emails.into_iter()
+        let limited_emails = filtered_emails
+            .into_iter()
             .take(max_results as usize)
             .collect();
-        
+
         Ok(limited_emails)
     }
-    
+
     fn get_message_details(&self, message_id: &str) -> Result<EmailMessage, GmailApiError> {
         if self.should_fail {
             return Err(GmailApiError::ApiError("Failed to get message".to_string()));
         }
-        
+
         // Find the email with the given ID
-        let email = self.emails.iter()
+        let email = self
+            .emails
+            .iter()
             .find(|email| email.id == message_id)
             .cloned();
-        
+
         match email {
             Some(email) => Ok(email),
-            None => Err(GmailApiError::MessageRetrievalError(format!("Message {} not found", message_id))),
+            None => Err(GmailApiError::MessageRetrievalError(format!(
+                "Message {} not found",
+                message_id
+            ))),
         }
     }
-    
+
     fn create_draft(&self, draft: &DraftEmail) -> Result<String, GmailApiError> {
         if self.should_fail {
-            return Err(GmailApiError::ApiError("Failed to create draft".to_string()));
+            return Err(GmailApiError::ApiError(
+                "Failed to create draft".to_string(),
+            ));
         }
-        
+
         // Basic validation
         if draft.to.is_empty() {
-            return Err(GmailApiError::MessageFormatError("Recipient cannot be empty".to_string()));
+            return Err(GmailApiError::MessageFormatError(
+                "Recipient cannot be empty".to_string(),
+            ));
         }
-        
+
         if draft.subject.is_empty() {
-            return Err(GmailApiError::MessageFormatError("Subject cannot be empty".to_string()));
+            return Err(GmailApiError::MessageFormatError(
+                "Subject cannot be empty".to_string(),
+            ));
         }
-        
+
         // Generate a draft ID
-        let draft_id = format!("draft_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
-        
+        let draft_id = format!(
+            "draft_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        );
+
         Ok(draft_id)
     }
-    
+
     fn list_labels(&self) -> Result<Value, GmailApiError> {
         if self.should_fail {
             return Err(GmailApiError::ApiError("Failed to list labels".to_string()));
         }
-        
+
         Ok(labels_to_json(&self.labels))
     }
-    
+
     fn check_connection(&self) -> Result<(String, u64), GmailApiError> {
         if self.should_fail {
-            return Err(GmailApiError::AuthError("Authentication failed".to_string()));
+            return Err(GmailApiError::AuthError(
+                "Authentication failed".to_string(),
+            ));
         }
-        
+
         Ok(("test@example.com".to_string(), 1000))
     }
 }
@@ -323,37 +373,37 @@ impl GmailClientInterface for MockGmailClient {
 #[cfg(test)]
 mod comprehensive_gmail_tests {
     use super::*;
-    
+
     // Helper to create a test client
     fn create_test_client() -> MockableGmailClient {
         let mock_client = MockGmailClient::new();
         let client = Arc::new(Mutex::new(mock_client));
         MockableGmailClient::new(client)
     }
-    
+
     // Helper to create a failing test client
     fn create_failing_client() -> MockableGmailClient {
         let mock_client = MockGmailClient::new().with_failure();
         let client = Arc::new(Mutex::new(mock_client));
         MockableGmailClient::new(client)
     }
-    
+
     #[test]
     fn test_list_messages_success() {
         let client = create_test_client();
-        
+
         // Test listing all messages
         let result = client.list_messages(10, None);
         assert!(result.is_ok());
         let messages = result.unwrap();
         assert_eq!(messages.len(), 3);
-        
+
         // Test with max_results
         let result = client.list_messages(2, None);
         assert!(result.is_ok());
         let messages = result.unwrap();
         assert_eq!(messages.len(), 2);
-        
+
         // Test with query
         let result = client.list_messages(10, Some("report"));
         assert!(result.is_ok());
@@ -361,11 +411,11 @@ mod comprehensive_gmail_tests {
         assert_eq!(messages.len(), 1);
         assert!(messages[0].subject.as_ref().unwrap().contains("Report"));
     }
-    
+
     #[test]
     fn test_list_messages_failure() {
         let client = create_failing_client();
-        
+
         let result = client.list_messages(10, None);
         assert!(result.is_err());
         match result {
@@ -375,16 +425,16 @@ mod comprehensive_gmail_tests {
             _ => panic!("Expected ApiError"),
         }
     }
-    
+
     #[test]
     fn test_get_message_details_success() {
         let client = create_test_client();
-        
+
         // Test getting an existing message
         let result = client.get_message_details("msg1");
         assert!(result.is_ok());
         let message = result.unwrap();
-        
+
         // Verify message details
         assert_eq!(message.id, "msg1");
         assert_eq!(message.subject.as_ref().unwrap(), "Important Meeting");
@@ -393,11 +443,11 @@ mod comprehensive_gmail_tests {
         assert!(message.body_text.is_some());
         assert!(message.body_html.is_some());
     }
-    
+
     #[test]
     fn test_get_message_details_not_found() {
         let client = create_test_client();
-        
+
         // Test getting a non-existent message
         let result = client.get_message_details("nonexistent");
         assert!(result.is_err());
@@ -408,11 +458,11 @@ mod comprehensive_gmail_tests {
             _ => panic!("Expected MessageRetrievalError"),
         }
     }
-    
+
     #[test]
     fn test_get_message_details_failure() {
         let client = create_failing_client();
-        
+
         let result = client.get_message_details("msg1");
         assert!(result.is_err());
         match result {
@@ -422,11 +472,11 @@ mod comprehensive_gmail_tests {
             _ => panic!("Expected ApiError"),
         }
     }
-    
+
     #[test]
     fn test_create_draft_success() {
         let client = create_test_client();
-        
+
         // Create a valid draft
         let draft = DraftEmail {
             to: "recipient@example.com".to_string(),
@@ -438,17 +488,17 @@ mod comprehensive_gmail_tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         let result = client.create_draft(&draft);
         assert!(result.is_ok());
         let draft_id = result.unwrap();
         assert!(draft_id.starts_with("draft_"));
     }
-    
+
     #[test]
     fn test_create_draft_with_optional_fields() {
         let client = create_test_client();
-        
+
         // Create a draft with optional fields
         let draft = DraftEmail {
             to: "recipient@example.com".to_string(),
@@ -460,15 +510,15 @@ mod comprehensive_gmail_tests {
             in_reply_to: Some("msg123".to_string()),
             references: Some("ref123".to_string()),
         };
-        
+
         let result = client.create_draft(&draft);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_create_draft_validation_failure() {
         let client = create_test_client();
-        
+
         // Test with empty recipient
         let invalid_draft = DraftEmail {
             to: "".to_string(),
@@ -480,7 +530,7 @@ mod comprehensive_gmail_tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         let result = client.create_draft(&invalid_draft);
         assert!(result.is_err());
         match result {
@@ -489,7 +539,7 @@ mod comprehensive_gmail_tests {
             }
             _ => panic!("Expected MessageFormatError"),
         }
-        
+
         // Test with empty subject
         let invalid_draft = DraftEmail {
             to: "recipient@example.com".to_string(),
@@ -501,7 +551,7 @@ mod comprehensive_gmail_tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         let result = client.create_draft(&invalid_draft);
         assert!(result.is_err());
         match result {
@@ -511,11 +561,11 @@ mod comprehensive_gmail_tests {
             _ => panic!("Expected MessageFormatError"),
         }
     }
-    
+
     #[test]
     fn test_create_draft_failure() {
         let client = create_failing_client();
-        
+
         let draft = DraftEmail {
             to: "recipient@example.com".to_string(),
             subject: "Test Draft".to_string(),
@@ -526,7 +576,7 @@ mod comprehensive_gmail_tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         let result = client.create_draft(&draft);
         assert!(result.is_err());
         match result {
@@ -536,32 +586,38 @@ mod comprehensive_gmail_tests {
             _ => panic!("Expected ApiError"),
         }
     }
-    
+
     #[test]
     fn test_list_labels_success() {
         let client = create_test_client();
-        
+
         let result = client.list_labels();
         assert!(result.is_ok());
-        
+
         let labels = result.unwrap();
         assert!(labels["labels"].is_array());
-        
+
         let labels_array = labels["labels"].as_array().unwrap();
         assert!(!labels_array.is_empty());
-        
+
         // Verify standard labels exist
-        let inbox_label = labels_array.iter().find(|label| label["id"] == "INBOX").unwrap();
+        let inbox_label = labels_array
+            .iter()
+            .find(|label| label["id"] == "INBOX")
+            .unwrap();
         assert_eq!(inbox_label["name"], "Inbox");
-        
-        let sent_label = labels_array.iter().find(|label| label["id"] == "SENT").unwrap();
+
+        let sent_label = labels_array
+            .iter()
+            .find(|label| label["id"] == "SENT")
+            .unwrap();
         assert_eq!(sent_label["name"], "Sent");
     }
-    
+
     #[test]
     fn test_list_labels_failure() {
         let client = create_failing_client();
-        
+
         let result = client.list_labels();
         assert!(result.is_err());
         match result {
@@ -571,23 +627,23 @@ mod comprehensive_gmail_tests {
             _ => panic!("Expected ApiError"),
         }
     }
-    
+
     #[test]
     fn test_check_connection_success() {
         let client = create_test_client();
-        
+
         let result = client.check_connection();
         assert!(result.is_ok());
-        
+
         let (email, count) = result.unwrap();
         assert_eq!(email, "test@example.com");
         assert_eq!(count, 1000);
     }
-    
+
     #[test]
     fn test_check_connection_failure() {
         let client = create_failing_client();
-        
+
         let result = client.check_connection();
         assert!(result.is_err());
         match result {
@@ -597,7 +653,7 @@ mod comprehensive_gmail_tests {
             _ => panic!("Expected AuthError"),
         }
     }
-    
+
     #[test]
     fn test_parsing_email_message() {
         // Test parsing a raw Gmail API message response
@@ -610,22 +666,26 @@ mod comprehensive_gmail_tests {
             "This is the plain text body",
             Some("<html><body>This is the HTML body</body></html>"),
         );
-        
+
         // Verify the structure of the raw message
         assert_eq!(raw_message["id"], "test_id");
         assert_eq!(raw_message["threadId"], "test_thread");
         assert_eq!(raw_message["payload"]["headers"][2]["name"], "Subject");
-        assert_eq!(raw_message["payload"]["headers"][2]["value"], "Test Subject");
-        
+        assert_eq!(
+            raw_message["payload"]["headers"][2]["value"],
+            "Test Subject"
+        );
+
         // Verify that base64 encoding of the body text is correct
-        let encoded_body = raw_message["payload"]["parts"][0]["body"]["data"].as_str().unwrap();
-        let decoded_body = base64::decode(
-            encoded_body.replace('-', "+").replace('_', "/")
-        ).unwrap();
+        let encoded_body = raw_message["payload"]["parts"][0]["body"]["data"]
+            .as_str()
+            .unwrap();
+        let decoded_body =
+            base64::decode(encoded_body.replace('-', "+").replace('_', "/")).unwrap();
         let decoded_text = String::from_utf8(decoded_body).unwrap();
         assert_eq!(decoded_text, "This is the plain text body");
     }
-    
+
     #[test]
     fn test_mime_message_format() {
         // Test MIME message format for draft creation
@@ -639,7 +699,7 @@ mod comprehensive_gmail_tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         // Create expected MIME format
         let expected_mime = "\
             From: me\r\n\
@@ -649,7 +709,7 @@ mod comprehensive_gmail_tests {
             Bcc: bcc@example.com\r\n\
             \r\n\
             This is the email body.";
-        
+
         // Create actual MIME message
         let actual_mime = format!(
             "From: me\r\n\
@@ -660,19 +720,25 @@ mod comprehensive_gmail_tests {
             draft.to,
             draft.subject,
             // Add optional fields if present
-            draft.cc.as_ref().map_or("".to_string(), |cc| format!("Cc: {}\r\n", cc)),
-            draft.bcc.as_ref().map_or("".to_string(), |bcc| format!("Bcc: {}\r\n", bcc)),
+            draft
+                .cc
+                .as_ref()
+                .map_or("".to_string(), |cc| format!("Cc: {}\r\n", cc)),
+            draft
+                .bcc
+                .as_ref()
+                .map_or("".to_string(), |bcc| format!("Bcc: {}\r\n", bcc)),
             draft.body
         );
-        
+
         // Verify
         assert_eq!(actual_mime.replace(" ", ""), expected_mime.replace(" ", ""));
     }
-    
+
     #[test]
     fn test_specialized_email_formats() {
         // Test creating and working with different email formats
-        
+
         // 1. Plain text only
         let plain_email = create_test_email(
             "plain_id",
@@ -680,12 +746,12 @@ mod comprehensive_gmail_tests {
             "sender@example.com",
             "recipient@example.com",
             "This is a plain text email with no HTML part.",
-            None
+            None,
         );
-        
+
         assert!(plain_email.body_html.is_none());
         assert!(plain_email.body_text.is_some());
-        
+
         // 2. HTML and text parts
         let html_email = create_test_email(
             "html_id",
@@ -693,12 +759,12 @@ mod comprehensive_gmail_tests {
             "sender@example.com",
             "recipient@example.com",
             "This is the plain text part.",
-            Some("<html><body>This is the <b>HTML</b> part.</body></html>")
+            Some("<html><body>This is the <b>HTML</b> part.</body></html>"),
         );
-        
+
         assert!(html_email.body_html.is_some());
         assert!(html_email.body_text.is_some());
-        
+
         // 3. Special characters
         let special_chars_email = create_test_email(
             "special_id",
@@ -706,14 +772,14 @@ mod comprehensive_gmail_tests {
             "sender@example.com",
             "recipient@example.com",
             "This email contains emoji 🎉 and special chars: äöüß",
-            Some("<html><body>HTML with emoji 🎉 and special chars: äöüß</body></html>")
+            Some("<html><body>HTML with emoji 🎉 and special chars: äöüß</body></html>"),
         );
-        
+
         assert!(special_chars_email.subject.unwrap().contains("😀"));
         assert!(special_chars_email.body_text.unwrap().contains("🎉"));
         assert!(special_chars_email.body_html.unwrap().contains("🎉"));
     }
-    
+
     #[test]
     fn test_message_thread_handling() {
         // Test creating messages in the same thread
@@ -727,11 +793,11 @@ mod comprehensive_gmail_tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         let client = create_test_client();
         let result1 = client.create_draft(&draft1);
         assert!(result1.is_ok());
-        
+
         // Create a reply in the same thread
         let draft2 = DraftEmail {
             to: "recipient@example.com".to_string(),
@@ -740,10 +806,10 @@ mod comprehensive_gmail_tests {
             cc: None,
             bcc: None,
             thread_id: Some("thread123".to_string()), // Part of a thread
-            in_reply_to: Some("msg123".to_string()), // References original message
-            references: Some("msg123".to_string()), // References for threading
+            in_reply_to: Some("msg123".to_string()),  // References original message
+            references: Some("msg123".to_string()),   // References for threading
         };
-        
+
         let result2 = client.create_draft(&draft2);
         assert!(result2.is_ok());
     }

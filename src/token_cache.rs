@@ -212,7 +212,10 @@ impl TokenCache {
             }
         }
 
-        debug!("Token successfully cached to {}", self.config.cache_file_path.display());
+        debug!(
+            "Token successfully cached to {}",
+            self.config.cache_file_path.display()
+        );
         Ok(())
     }
 
@@ -359,7 +362,10 @@ impl TokenCache {
             Ok(ciphertext) => ciphertext,
             Err(e) => {
                 error!("Encryption failed: {}", e);
-                return Err(GmailApiError::CacheError(format!("Encryption failed: {}", e)));
+                return Err(GmailApiError::CacheError(format!(
+                    "Encryption failed: {}",
+                    e
+                )));
             }
         };
 
@@ -386,7 +392,10 @@ impl TokenCache {
             Ok(plaintext) => Ok(plaintext),
             Err(e) => {
                 error!("Decryption failed: {}", e);
-                Err(GmailApiError::CacheError(format!("Decryption failed: {}", e)))
+                Err(GmailApiError::CacheError(format!(
+                    "Decryption failed: {}",
+                    e
+                )))
             }
         }
     }
@@ -397,22 +406,26 @@ fn generate_encryption_key(secret: &str) -> Vec<u8> {
     // Simple key derivation - in a production system, use a proper KDF like PBKDF2
     let mut key = Vec::with_capacity(32); // 256 bits for AES-256
     let source = secret.as_bytes().to_vec();
-    
+
     // Pad or truncate the key to exactly 32 bytes
-    if source.len() < 32 {
-        // If key is too short, repeat it
-        while key.len() < 32 {
-            key.extend_from_slice(&source);
+    match source.len().cmp(&32) {
+        std::cmp::Ordering::Less => {
+            // If key is too short, repeat it
+            while key.len() < 32 {
+                key.extend_from_slice(&source);
+            }
+            key.truncate(32);
         }
-        key.truncate(32);
-    } else if source.len() > 32 {
-        // If key is too long, truncate it
-        key.extend_from_slice(&source[0..32]);
-    } else {
-        // Key is exactly right size
-        key = source;
+        std::cmp::Ordering::Greater => {
+            // If key is too long, truncate it
+            key.extend_from_slice(&source[0..32]);
+        }
+        std::cmp::Ordering::Equal => {
+            // Key is exactly right size
+            key = source;
+        }
     }
-    
+
     key
 }
 
@@ -424,12 +437,12 @@ fn fallback_encryption_key() -> Vec<u8> {
         Ok(output) => String::from_utf8_lossy(&output.stdout).to_string(),
         Err(_) => "unknown-host".to_string(),
     };
-    
+
     let username = match std::env::var("USER") {
         Ok(user) => user,
         Err(_) => "unknown-user".to_string(),
     };
-    
+
     // Combine and hash to get a unique key
     let combined = format!("gmail-mcp-rs-{}-{}", hostname, username);
     generate_encryption_key(&combined)
@@ -448,7 +461,7 @@ fn default_cache_path() -> PathBuf {
             }
         }
     };
-    
+
     path.push("gmail-mcp-rs");
     path.push("token-cache.dat");
     path

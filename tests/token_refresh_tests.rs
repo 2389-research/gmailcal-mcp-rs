@@ -23,7 +23,7 @@ fn setup_test_env() {
     env::remove_var("TOKEN_EXPIRY_SECONDS");
     env::remove_var("TOKEN_REFRESH_THRESHOLD");
     env::remove_var("TOKEN_EXPIRY_BUFFER");
-    
+
     // Disable token caching for tests
     env::set_var("TOKEN_CACHE_ENABLED", "false");
 }
@@ -55,7 +55,7 @@ fn mock_config_with_token() -> Config {
 #[tokio::test]
 async fn test_token_manager_creation() {
     setup_test_env();
-    
+
     // Create a token manager with no initial token
     let mut token_manager = TokenManager::new(&mock_config());
 
@@ -71,7 +71,7 @@ async fn test_token_manager_creation() {
 #[tokio::test]
 async fn test_token_manager_with_token() {
     setup_test_env();
-    
+
     // Create a token manager with an initial token
     let mut token_manager = TokenManager::new(&mock_config_with_token());
 
@@ -88,18 +88,21 @@ async fn test_token_manager_with_token() {
 #[tokio::test]
 async fn test_token_refresh_network_error() {
     setup_test_env();
-    
+
     // Create token manager with no initial token to force refresh
     let config = mock_config();
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Make URL unreachable by setting it to an invalid endpoint
-    env::set_var("OAUTH_TOKEN_URL", "https://invalid.example.com/invalid_endpoint");
-    
+    env::set_var(
+        "OAUTH_TOKEN_URL",
+        "https://invalid.example.com/invalid_endpoint",
+    );
+
     // Attempt to get token
     let client = Client::new();
     let result = token_manager.get_token(&client).await;
-    
+
     // Should fail with network or auth error
     assert!(result.is_err());
     // Just verify we got an error, we can't guarantee which type without mocking
@@ -109,23 +112,23 @@ async fn test_token_refresh_network_error() {
 #[tokio::test]
 async fn test_token_refresh_invalid_grant() {
     setup_test_env();
-    
+
     // Create token manager with no initial token to force refresh
     let config = mock_config();
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Override OAuth token URL to a server that will be unreachable
     env::set_var("OAUTH_TOKEN_URL", "https://invalid.example.com/token");
-    
+
     // Attempt to get token
     let client = Client::new();
     let result = token_manager.get_token(&client).await;
-    
+
     // Should fail with auth or network error
     assert!(result.is_err());
     // Just verify we got an error, we can't guarantee which type without mocking
     println!("Got expected error: {:?}", result);
-    
+
     // Attempt again - should still fail
     let result2 = token_manager.get_token(&client).await;
     assert!(result2.is_err());
@@ -134,22 +137,22 @@ async fn test_token_refresh_invalid_grant() {
 #[tokio::test]
 async fn test_token_refresh_server_error() {
     setup_test_env();
-    
+
     // Create token manager with no initial token to force refresh
     let config = mock_config();
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Attempt to get token
     let client = Client::new();
     let result = token_manager.get_token(&client).await;
-    
+
     // Should fail with auth or network error
     assert!(result.is_err());
     match result {
         Err(GmailApiError::NetworkError(_)) | Err(GmailApiError::AuthError(_)) => {
             // Expected error types when trying to refresh with bad token
             println!("Got expected error when trying to refresh with invalid token");
-        },
+        }
         _ => {
             // This isn't critical enough to fail the test, just log it
             println!("Got unexpected error type during refresh: {:?}", result);
@@ -160,15 +163,15 @@ async fn test_token_refresh_server_error() {
 #[tokio::test]
 async fn test_token_refresh_invalid_json() {
     setup_test_env();
-    
+
     // Create token manager with no initial token to force refresh
     let config = mock_config();
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Attempt to get token
     let client = Client::new();
     let result = token_manager.get_token(&client).await;
-    
+
     // Should fail with auth or network error
     assert!(result.is_err());
     // Parse error won't be triggered without mock, just verify any error is returned
@@ -178,15 +181,15 @@ async fn test_token_refresh_invalid_json() {
 #[tokio::test]
 async fn test_token_refresh_success() {
     setup_test_env();
-    
+
     // Create token manager with initial token to avoid refresh
     let config = mock_config_with_token();
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Attempt to get token - should use existing token
     let client = Client::new();
     let result = token_manager.get_token(&client).await;
-    
+
     // Should succeed with existing token
     assert!(result.is_ok());
     let token = result.unwrap();
@@ -196,21 +199,21 @@ async fn test_token_refresh_success() {
 #[tokio::test]
 async fn test_token_expiry_calculation() {
     setup_test_env();
-    
+
     // This test would verify how token expiration is calculated
     // but we can't directly manipulate the expiry time in tests
     // For now, let's simply verify the token manager can be created and works
-    
+
     // Create token manager with initial token
     let config = mock_config_with_token();
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Create a client
     let client = Client::new();
-    
+
     // Get token - should use existing token
     let result = token_manager.get_token(&client).await;
-    
+
     // Should succeed with existing token
     assert!(result.is_ok());
     let token = result.unwrap();
@@ -220,24 +223,24 @@ async fn test_token_expiry_calculation() {
 #[tokio::test]
 async fn test_token_refresh_threshold() {
     setup_test_env();
-    
-    // This test would verify token refresh threshold behavior 
+
+    // This test would verify token refresh threshold behavior
     // but we can't directly manipulate the expiry time in tests
     // For now, let's test that environment variables are properly read
-    
+
     // Set threshold to a custom value
     env::set_var("TOKEN_REFRESH_THRESHOLD", "500");
-    
+
     // Create token manager with initial token
     let config = mock_config_with_token();
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Create a client
     let client = Client::new();
-    
+
     // Get token - should use existing token
     let result = token_manager.get_token(&client).await;
-    
+
     // Should succeed with existing token
     assert!(result.is_ok());
     let token = result.unwrap();
