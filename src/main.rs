@@ -1,5 +1,5 @@
 use clap::Parser;
-use log::{debug, error, info, LevelFilter};
+use log::{debug, error, LevelFilter};
 use mcp_attr::server::serve_stdio;
 use mcp_gmailcal::{
     cli::{Cli, Commands},
@@ -23,13 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if is_read_only {
         // Set a marker environment variable for read-only mode
         env::set_var("MCP_READ_ONLY", "1");
-        println!("Running in read-only mode with in-memory logging");
+        eprintln!("Running in read-only mode with in-memory logging");
     }
 
     // Determine which command to run
     match cli.command {
         Some(Commands::Auth) => {
-            println!("Starting OAuth authentication flow...");
+            eprintln!("Starting OAuth authentication flow...");
             if let Err(e) = oauth::run_oauth_flow().await {
                 eprintln!("Authentication failed: {}", e);
                 std::process::exit(1);
@@ -37,11 +37,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         Some(Commands::Test) => {
-            println!("Testing Gmail credentials...");
+            eprintln!("Testing Gmail credentials...");
             match oauth::test_credentials().await {
                 Ok(result) => {
-                    println!("{}\n", result);
-                    println!("✅ Credentials are valid and working!");
+                    eprintln!("{}\n", result);
+                    eprintln!("✅ Credentials are valid and working!");
                 }
                 Err(e) => {
                     eprintln!("❌ Credential test failed: {}", e);
@@ -65,8 +65,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         setup_logging(LevelFilter::Trace, None)?
     };
 
-    info!("Gmail MCP Server starting...");
-    info!("Logs will be saved to {}", log_file);
+    debug!("Gmail MCP Server starting...");
+    debug!("Logs will be saved to {}", log_file);
     debug!("Debug logging enabled");
 
     // Choose transport based on CLI argument
@@ -77,14 +77,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let server = GmailServer::new();
 
             // Run the server
-            info!("Starting MCP server with stdio interface");
+            debug!("Starting MCP server with stdio interface");
             let result = serve_stdio(server).await;
 
             // Log the result
             if let Err(ref e) = result {
                 error!("Error running MCP server: {}", e);
             } else {
-                info!("MCP server completed successfully");
+                debug!("MCP server completed successfully");
             }
 
             debug!("Exiting application");
@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Build the socket address
             let addr: SocketAddr = format!("{}:{}", cli.host, cli.port).parse()?;
 
-            info!("Starting MCP server with SSE transport on {}", addr);
+            debug!("Starting MCP server with SSE transport on {}", addr);
 
             // Run the SSE server
             server.serve(addr).await?;

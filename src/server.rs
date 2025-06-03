@@ -1,7 +1,10 @@
-use log::{debug, error, info};
+use chrono::{DateTime, Utc};
+use log::{debug, error};
 use mcp_attr::server::{mcp_server, McpServer};
 use mcp_attr::{Error as McpError, Result as McpResult};
 use serde_json::json;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::config::Config;
 use crate::errors::ConfigError;
@@ -17,9 +20,22 @@ mod helpers {
 
 // Error codes have been moved to the utils module
 
+// OAuth token storage
+#[derive(Clone, Debug)]
+struct OAuthTokens {
+    access_token: String,
+    refresh_token: String,
+    expires_at: DateTime<Utc>,
+    email: String,
+    client_id: String,
+    client_secret: String,
+}
+
 // MCP server for accessing Gmail API
 #[derive(Clone)]
-pub struct GmailServer;
+pub struct GmailServer {
+    oauth_tokens: Arc<RwLock<Option<OAuthTokens>>>,
+}
 
 impl Default for GmailServer {
     fn default() -> Self {
@@ -29,7 +45,9 @@ impl Default for GmailServer {
 
 impl GmailServer {
     pub fn new() -> Self {
-        GmailServer {}
+        GmailServer {
+            oauth_tokens: Arc::new(RwLock::new(None)),
+        }
     }
 
     // Private method to initialize the Calendar service
@@ -74,25 +92,57 @@ impl GmailServer {
         crate::utils::map_gmail_error(err)
     }
 
+    // Check if the server is authenticated with OAuth tokens
+    #[allow(dead_code)]
+    async fn is_authenticated(&self) -> bool {
+        let tokens = self.oauth_tokens.read().await;
+        if let Some(ref tokens) = *tokens {
+            // Check if token is still valid (with 5-minute buffer)
+            Utc::now() < tokens.expires_at - chrono::Duration::minutes(5)
+        } else {
+            false
+        }
+    }
+
+    // Get current OAuth config from stored tokens or create from memory
+    async fn get_oauth_config(&self) -> Option<Config> {
+        let tokens = self.oauth_tokens.read().await;
+        (*tokens).as_ref().map(|tokens| Config {
+            client_id: tokens.client_id.clone(),
+            client_secret: tokens.client_secret.clone(),
+            refresh_token: tokens.refresh_token.clone(),
+            access_token: Some(tokens.access_token.clone()),
+            token_refresh_threshold: 300, // 5 minutes
+            token_expiry_buffer: 60,      // 1 minute
+        })
+    }
+
     // Helper function to initialize Gmail service with detailed error handling
     async fn init_gmail_service(&self) -> McpResult<GmailService> {
-        // Load configuration
+        // First try to use OAuth tokens from memory
+        if let Some(config) = self.get_oauth_config().await {
+            debug!("Using OAuth tokens from memory for Gmail service");
+            return GmailService::new(&config).map_err(|err| {
+                error!("Failed to create Gmail service with OAuth tokens: {}", err);
+                self.map_gmail_error(err)
+            });
+        }
+
+        // Fall back to environment variables
         let config = Config::from_env().map_err(|err| {
             let msg = match err {
                 ConfigError::MissingEnvVar(var) => {
                     format!(
-                        "Missing environment variable: {}. \
-                        This variable is required for Gmail authentication. \
-                        Please ensure you have set up your .env file correctly or exported the variable in your shell. \
-                        Create an OAuth2 client in the Google Cloud Console to obtain these credentials.", 
+                        "Not authenticated! Use the 'get_oauth_url' tool to start OAuth flow. \
+                        Missing environment variable: {}. \
+                        This variable is required for Gmail authentication when OAuth tokens are not available.",
                         var
                     )
                 }
                 ConfigError::EnvError(e) => {
                     format!(
-                        "Environment variable error: {}. \
-                        There was a problem reading the environment variables needed for Gmail authentication. \
-                        Check permissions on your .env file and ensure it's properly formatted without special characters or quotes.", 
+                        "Authentication error: {}. \
+                        Use the 'get_oauth_url' tool to start OAuth flow or check your .env file configuration.",
                         e
                     )
                 },
@@ -197,6 +247,226 @@ impl McpServer for GmailServer {
         Ok(crate::prompts::EMAIL_DRAFTING_PROMPT)
     }
 
+    /// OAuth Threading Prompt
+    ///
+    /// Critical instructions for email threading
+    #[prompt]
+    async fn oauth_threading_prompt(&self) -> McpResult<&str> {
+        Ok(crate::prompts::EMAIL_THREADING_PROMPT)
+    }
+
+    /// Start OAuth authentication flow
+    ///
+    /// Generate an OAuth authorization URL for Google Gmail access.
+    /// User must open this URL in browser and complete authorization.
+    ///
+    /// Args:
+    ///   client_id: Google OAuth client ID from Google Cloud Console
+    #[tool]
+    async fn get_oauth_url(&self, client_id: String) -> McpResult<String> {
+        debug!("=== START get_oauth_url ===");
+
+        // Generate state token for CSRF protection
+        use rand::distributions::{Alphanumeric, DistString};
+        let state = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+
+        // OAuth scopes for Gmail, Calendar, and People API
+        let scopes = [
+            "https://mail.google.com/",
+            "https://www.googleapis.com/auth/calendar.readonly",
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/contacts.readonly",
+            "https://www.googleapis.com/auth/directory.readonly",
+        ];
+
+        let redirect_uri = "http://localhost:8080/oauth/callback";
+
+        // Build authorization URL
+        let auth_url = format!(
+            "https://accounts.google.com/o/oauth2/auth?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}&access_type=offline&prompt=consent",
+            urlencoding::encode(&client_id),
+            urlencoding::encode(redirect_uri),
+            urlencoding::encode(&scopes.join(" ")),
+            urlencoding::encode(&state)
+        );
+
+        let response = json!({
+            "authorization_url": auth_url,
+            "state": state,
+            "redirect_uri": redirect_uri,
+            "instructions": [
+                "1. Open the authorization URL in your browser",
+                "2. Complete Google OAuth authorization",
+                "3. After redirect, copy the 'code' parameter from the URL",
+                "4. Use 'complete_oauth' tool with the code and your client secret"
+            ]
+        });
+
+        debug!("=== END get_oauth_url ===");
+        Ok(response.to_string())
+    }
+
+    /// Complete OAuth authentication flow
+    ///
+    /// Exchange authorization code for access tokens and store them.
+    ///
+    /// Args:
+    ///   auth_code: Authorization code from OAuth callback URL
+    ///   client_id: Google OAuth client ID
+    ///   client_secret: Google OAuth client secret
+    #[tool]
+    async fn complete_oauth(
+        &self,
+        auth_code: String,
+        client_id: String,
+        client_secret: String,
+    ) -> McpResult<String> {
+        debug!("=== START complete_oauth ===");
+
+        let redirect_uri = "http://localhost:8080/oauth/callback";
+
+        // Exchange code for tokens
+        let client = reqwest::Client::new();
+        let params = [
+            ("code", auth_code.as_str()),
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+            ("redirect_uri", redirect_uri),
+            ("grant_type", "authorization_code"),
+        ];
+
+        let response = client
+            .post("https://oauth2.googleapis.com/token")
+            .form(&params)
+            .send()
+            .await
+            .map_err(|e| {
+                self.to_mcp_error(
+                    &format!("Token exchange failed: {}", e),
+                    error_codes::NETWORK_ERROR,
+                )
+            })?;
+
+        if !response.status().is_success() {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(self.to_mcp_error(
+                &format!("OAuth failed: {}", error_text),
+                error_codes::AUTH_ERROR,
+            ));
+        }
+
+        let token_response: serde_json::Value = response.json().await.map_err(|e| {
+            self.to_mcp_error(
+                &format!("Failed to parse token response: {}", e),
+                error_codes::MESSAGE_FORMAT_ERROR,
+            )
+        })?;
+
+        // Extract tokens
+        let access_token = token_response["access_token"].as_str().ok_or_else(|| {
+            self.to_mcp_error("Missing access_token in response", error_codes::AUTH_ERROR)
+        })?;
+        let refresh_token = token_response["refresh_token"].as_str().ok_or_else(|| {
+            self.to_mcp_error("Missing refresh_token in response", error_codes::AUTH_ERROR)
+        })?;
+        let expires_in = token_response["expires_in"].as_u64().unwrap_or(3600);
+
+        // Get user email using the access token
+        let user_info_response = client
+            .get("https://www.googleapis.com/oauth2/v2/userinfo")
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|e| {
+                self.to_mcp_error(
+                    &format!("Failed to get user info: {}", e),
+                    error_codes::NETWORK_ERROR,
+                )
+            })?;
+
+        let user_info: serde_json::Value = user_info_response.json().await.map_err(|e| {
+            self.to_mcp_error(
+                &format!("Failed to parse user info: {}", e),
+                error_codes::MESSAGE_FORMAT_ERROR,
+            )
+        })?;
+
+        let email = user_info["email"].as_str().ok_or_else(|| {
+            self.to_mcp_error("Could not retrieve user email", error_codes::AUTH_ERROR)
+        })?;
+
+        // Store tokens in memory
+        let oauth_tokens = OAuthTokens {
+            access_token: access_token.to_string(),
+            refresh_token: refresh_token.to_string(),
+            expires_at: Utc::now() + chrono::Duration::seconds(expires_in as i64),
+            email: email.to_string(),
+            client_id: client_id.clone(),
+            client_secret: client_secret.clone(),
+        };
+
+        {
+            let mut tokens = self.oauth_tokens.write().await;
+            *tokens = Some(oauth_tokens);
+        }
+
+        let response = json!({
+            "status": "success",
+            "message": "OAuth authentication completed successfully!",
+            "email": email,
+            "expires_at": Utc::now() + chrono::Duration::seconds(expires_in as i64),
+            "scopes": "Gmail, Calendar, and Contacts access granted"
+        });
+
+        debug!("=== END complete_oauth (success for {}) ===", email);
+        Ok(response.to_string())
+    }
+
+    /// Check OAuth authentication status
+    ///
+    /// Returns current authentication status and token information.
+    #[tool]
+    async fn auth_status(&self) -> McpResult<String> {
+        let tokens = self.oauth_tokens.read().await;
+
+        if let Some(ref tokens) = *tokens {
+            let now = Utc::now();
+            let is_valid = now < tokens.expires_at;
+            let time_remaining = if is_valid {
+                let duration = tokens.expires_at - now;
+                format!("{} minutes", duration.num_minutes())
+            } else {
+                "Expired".to_string()
+            };
+
+            let response = json!({
+                "authenticated": is_valid,
+                "email": tokens.email,
+                "expires_at": tokens.expires_at,
+                "time_remaining": time_remaining,
+                "status": if is_valid { "Valid" } else { "Expired - use get_oauth_url to re-authenticate" }
+            });
+
+            Ok(response.to_string())
+        } else {
+            let response = json!({
+                "authenticated": false,
+                "status": "Not authenticated - use get_oauth_url to start OAuth flow",
+                "instructions": [
+                    "1. Call get_oauth_url with your Google OAuth client ID",
+                    "2. Open the returned URL in your browser",
+                    "3. Complete authorization and copy the code",
+                    "4. Call complete_oauth with the code and client secret"
+                ]
+            });
+
+            Ok(response.to_string())
+        }
+    }
+
     /// Get a list of emails from the inbox
     ///
     /// Returns emails with subject, sender, recipient, date and snippet information.
@@ -210,7 +480,7 @@ impl McpServer for GmailServer {
         max_results: Option<serde_json::Value>,
         query: Option<String>,
     ) -> McpResult<String> {
-        info!("=== START list_emails MCP command ===");
+        debug!("=== START list_emails MCP command ===");
         debug!(
             "list_emails called with max_results={:?}, query={:?}",
             max_results, query
@@ -249,7 +519,7 @@ impl McpServer for GmailServer {
             }
         };
 
-        info!("=== END list_emails MCP command (success) ===");
+        debug!("=== END list_emails MCP command (success) ===");
         Ok(result)
     }
     /// Get details for a specific email
@@ -260,7 +530,7 @@ impl McpServer for GmailServer {
     ///   message_id: The ID of the message to retrieve
     #[tool]
     async fn get_email(&self, message_id: String) -> McpResult<String> {
-        info!("=== START get_email MCP command ===");
+        debug!("=== START get_email MCP command ===");
         debug!("get_email called with message_id={}", message_id);
 
         // Get the Gmail service
@@ -292,7 +562,7 @@ impl McpServer for GmailServer {
             self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
         })?;
 
-        info!("=== END get_email MCP command (success) ===");
+        debug!("=== END get_email MCP command (success) ===");
         Ok(result)
     }
     /// Search for emails using a Gmail search query
@@ -308,7 +578,7 @@ impl McpServer for GmailServer {
         query: String,
         max_results: Option<serde_json::Value>,
     ) -> McpResult<String> {
-        info!("=== START search_emails MCP command ===");
+        debug!("=== START search_emails MCP command ===");
         debug!(
             "search_emails called with query={:?}, max_results={:?}",
             query, max_results
@@ -343,7 +613,7 @@ impl McpServer for GmailServer {
             }
         };
 
-        info!("=== END search_emails MCP command (success) ===");
+        debug!("=== END search_emails MCP command (success) ===");
         Ok(result)
     }
 
@@ -378,7 +648,7 @@ impl McpServer for GmailServer {
     /// Returns the raw JSON response from the Gmail API without any transformation or modification.
     #[tool]
     async fn check_connection(&self) -> McpResult<String> {
-        info!("=== START check_connection MCP command ===");
+        debug!("=== START check_connection MCP command ===");
         debug!("check_connection called");
 
         // Get the Gmail service
@@ -398,7 +668,7 @@ impl McpServer for GmailServer {
             }
         };
 
-        info!("=== END check_connection MCP command (success) ===");
+        debug!("=== END check_connection MCP command (success) ===");
         Ok(profile_json)
     }
 
@@ -418,7 +688,7 @@ impl McpServer for GmailServer {
         message_id: String,
         analysis_type: Option<String>,
     ) -> McpResult<String> {
-        info!("=== START analyze_email MCP command ===");
+        debug!("=== START analyze_email MCP command ===");
         debug!(
             "analyze_email called with message_id={}, analysis_type={:?}",
             message_id, analysis_type
@@ -542,7 +812,7 @@ impl McpServer for GmailServer {
             self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
         })?;
 
-        info!("=== END analyze_email MCP command (success) ===");
+        debug!("=== END analyze_email MCP command (success) ===");
         Ok(result_json)
     }
 
@@ -561,7 +831,7 @@ impl McpServer for GmailServer {
         message_ids: Vec<String>,
         analysis_type: Option<String>,
     ) -> McpResult<String> {
-        info!("=== START batch_analyze_emails MCP command ===");
+        debug!("=== START batch_analyze_emails MCP command ===");
         debug!(
             "batch_analyze_emails called with {} messages, analysis_type={:?}",
             message_ids.len(),
@@ -634,7 +904,7 @@ impl McpServer for GmailServer {
             self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
         })?;
 
-        info!("=== END batch_analyze_emails MCP command (success) ===");
+        debug!("=== END batch_analyze_emails MCP command (success) ===");
         Ok(result_json)
     }
 
@@ -669,7 +939,7 @@ impl McpServer for GmailServer {
         // Additional options
         references: Option<String>,
     ) -> McpResult<String> {
-        info!("=== START create_draft_email MCP command ===");
+        debug!("=== START create_draft_email MCP command ===");
         debug!(
             "create_draft_email called with to={}, subject={}, cc={:?}, bcc={:?}, thread_id={:?}, in_reply_to={:?}",
             to, subject, cc, bcc, thread_id, in_reply_to
@@ -719,7 +989,7 @@ impl McpServer for GmailServer {
                     self.to_mcp_error(&error_msg, error_codes::MESSAGE_FORMAT_ERROR)
                 })?;
 
-                info!("=== END create_draft_email MCP command (success) ===");
+                debug!("=== END create_draft_email MCP command (success) ===");
                 Ok(result_json)
             }
             Err(err) => {
@@ -749,7 +1019,7 @@ impl McpServer for GmailServer {
     /// A JSON string containing the contact list
     #[tool]
     async fn list_contacts(&self, max_results: Option<u32>) -> McpResult<String> {
-        info!("=== START list_contacts MCP command ===");
+        debug!("=== START list_contacts MCP command ===");
         debug!("list_contacts called with max_results={:?}", max_results);
 
         // Initialize the People API client
@@ -788,7 +1058,7 @@ impl McpServer for GmailServer {
     /// A JSON string containing the matching contacts
     #[tool]
     async fn search_contacts(&self, query: String, max_results: Option<u32>) -> McpResult<String> {
-        info!("=== START search_contacts MCP command ===");
+        debug!("=== START search_contacts MCP command ===");
         debug!(
             "search_contacts called with query=\"{}\" and max_results={:?}",
             query, max_results
@@ -829,7 +1099,7 @@ impl McpServer for GmailServer {
     /// A JSON string containing the contact details
     #[tool]
     async fn get_contact(&self, resource_name: String) -> McpResult<String> {
-        info!("=== START get_contact MCP command ===");
+        debug!("=== START get_contact MCP command ===");
         debug!("get_contact called with resource_name={}", resource_name);
 
         // Initialize the People API client
@@ -863,7 +1133,7 @@ impl McpServer for GmailServer {
     /// A JSON string containing the calendar list
     #[tool]
     async fn list_calendars(&self) -> McpResult<String> {
-        info!("=== START list_calendars MCP command ===");
+        debug!("=== START list_calendars MCP command ===");
         debug!("list_calendars called");
 
         // Initialize the calendar service
@@ -911,7 +1181,7 @@ impl McpServer for GmailServer {
         time_min: Option<String>,
         time_max: Option<String>,
     ) -> McpResult<String> {
-        info!("=== START list_events MCP command ===");
+        debug!("=== START list_events MCP command ===");
         debug!(
             "list_events called with calendar_id={:?}, max_results={:?}, time_min={:?}, time_max={:?}",
             calendar_id, max_results, time_min, time_max
@@ -996,7 +1266,7 @@ impl McpServer for GmailServer {
     /// A JSON string containing the event details
     #[tool]
     async fn get_event(&self, calendar_id: Option<String>, event_id: String) -> McpResult<String> {
-        info!("=== START get_event MCP command ===");
+        debug!("=== START get_event MCP command ===");
         debug!(
             "get_event called with calendar_id={:?}, event_id={}",
             calendar_id, event_id
@@ -1067,7 +1337,7 @@ impl McpServer for GmailServer {
         // Participants
         attendees: Option<Vec<String>>,
     ) -> McpResult<String> {
-        info!("=== START create_event MCP command ===");
+        debug!("=== START create_event MCP command ===");
         debug!(
             "create_event called with calendar_id={:?}, summary={}, description={:?}, location={:?}, start_time={}, end_time={}, attendees={:?}",
             calendar_id, summary, description, location, start_time, end_time, attendees

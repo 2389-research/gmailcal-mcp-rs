@@ -38,7 +38,7 @@ pub fn setup_logging(log_level: LevelFilter, log_file: Option<&str>) -> std::io:
         )
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        log::info!("Logging initialized to stderr only (memory mode)");
+        log::debug!("Logging initialized to stderr only (memory mode)");
         log::debug!("Debug logging enabled");
 
         return Ok(String::from("stderr-only (memory mode)"));
@@ -79,7 +79,7 @@ pub fn setup_logging(log_level: LevelFilter, log_file: Option<&str>) -> std::io:
     ])
     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-    log::info!("Logging initialized to file: {} and stderr", log_path);
+    log::debug!("Logging initialized to file: {} and stderr", log_path);
     log::debug!("Debug logging enabled");
 
     Ok(log_path)

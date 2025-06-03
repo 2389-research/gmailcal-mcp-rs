@@ -21,6 +21,9 @@ pub mod error_codes {
     /// Message format/missing field errors
     pub const MESSAGE_FORMAT_ERROR: u32 = 1005;
 
+    /// Network/HTTP request errors
+    pub const NETWORK_ERROR: u32 = 1006;
+
     // Map error codes to human-readable descriptions
     pub fn get_error_description(code: u32) -> &'static str {
         match code {
@@ -28,6 +31,7 @@ pub mod error_codes {
             AUTH_ERROR => "Authentication Error: Failed to authenticate with Gmail API using the provided credentials",
             API_ERROR => "Gmail API Error: The request to the Gmail API failed",
             MESSAGE_FORMAT_ERROR => "Message Format Error: The response from Gmail API has missing or invalid fields",
+            NETWORK_ERROR => "Network Error: Failed to make HTTP request or network connection issue",
             GENERAL_ERROR => "General Error: An unspecified error occurred in the Gmail MCP server",
             _ => "Unknown Error: An unclassified error occurred",
         }
@@ -40,6 +44,7 @@ pub mod error_codes {
             AUTH_ERROR => "Verify your OAuth credentials. Your refresh token may have expired or been revoked. Try generating new OAuth credentials and updating your environment variables.",
             API_ERROR => "The Gmail API request failed. This could be due to API rate limits, network issues, or an invalid request. Check your internet connection and review the specific error details.",
             MESSAGE_FORMAT_ERROR => "The Gmail API returned data in an unexpected format. This may be due to changes in the API or issues with specific messages. Try with a different message ID or update the server code.",
+            NETWORK_ERROR => "Check your internet connection and ensure the target servers are accessible. This may be due to network issues, DNS problems, or server timeouts.",
             GENERAL_ERROR => "Review server logs for more details about what went wrong. Check for any recent changes to your code or environment.",
             _ => "Check the server logs for more specific error information. Ensure all dependencies are up to date.",
         }

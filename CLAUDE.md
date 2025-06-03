@@ -16,6 +16,13 @@
 - **Run with MCP inspector (stdio)**: `npx @modelcontextprotocol/inspector cargo run`
 - **Run with MCP inspector (SSE)**: `npx @modelcontextprotocol/inspector http://localhost:8080/sse`
 
+## OAuth Authentication (NEW!)
+The server now supports OAuth authentication through MCP tools:
+- **Check auth status**: Use `auth_status` tool
+- **Start OAuth flow**: Use `get_oauth_url` tool with your Google Client ID
+- **Complete OAuth**: Use `complete_oauth` tool with auth code and client secret
+- **Legacy OAuth** (standalone): `cargo run -- auth` (still available for .env setup)
+
 ## Code Style Guidelines
 - **Formatting**: Follow Rust standard formatting (rustfmt)
 - **Error handling**: Use `thiserror` for custom errors, return Result types

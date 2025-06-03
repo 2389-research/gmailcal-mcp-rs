@@ -6,7 +6,7 @@ description = "A MCP server for google mail, calendar, and contacts."
 license = "MIT"
 
 [dependencies]
-mcp-attr = "0.0.5"
+mcp-attr = "0.0.7"
 tokio = { version = "1.44.1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
