@@ -1,3 +1,5 @@
+use base64::{decode, encode};
+use mcp_gmailcal::config::Config;
 /// Gmail Draft Email Tests Module
 ///
 /// This module contains tests for the draft email functionality,
@@ -5,12 +7,10 @@
 ///
 use mcp_gmailcal::errors::GmailApiError;
 use mcp_gmailcal::gmail_api::{DraftEmail, GmailService};
-use mcp_gmailcal::config::Config;
-use serde_json::{json, Value};
-use base64::{encode, decode};
-use std::time::{SystemTime, UNIX_EPOCH};
 use mockito;
+use serde_json::{json, Value};
 use std::env;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // Helper to create a mock config
 fn create_mock_config() -> Config {
@@ -87,10 +87,11 @@ mod draft_email_tests {
             )),
             "threadId": draft.thread_id
         });
-        
+
         let api_format = json!({
             "message": message_json
-        }).to_string();
+        })
+        .to_string();
 
         // Convert to Value for easier testing
         let value: Value = serde_json::from_str(&api_format).unwrap();
@@ -98,21 +99,21 @@ mod draft_email_tests {
         // Check structure
         assert!(value.is_object());
         assert!(value.get("message").is_some());
-        
+
         let message = value.get("message").unwrap();
         assert!(message.is_object());
-        
+
         let raw = message.get("raw").unwrap().as_str().unwrap();
-        
+
         // The raw field should be a base64 string
         assert!(!raw.is_empty());
-        
+
         // Decode the raw content to check the email format
         let decoded = match decode(raw) {
             Ok(bytes) => String::from_utf8_lossy(&bytes).to_string(),
             Err(_) => panic!("Failed to decode base64 content"),
         };
-        
+
         // Check email headers
         assert!(decoded.contains("To: recipient@example.com"));
         assert!(decoded.contains("Subject: Test Subject"));
@@ -120,24 +121,31 @@ mod draft_email_tests {
         assert!(decoded.contains("Bcc: bcc@example.com"));
         assert!(decoded.contains("In-Reply-To: <original-message-id@example.com>"));
         assert!(decoded.contains("References: <original-message-id@example.com>"));
-        
+
         // Check email body
         assert!(decoded.contains("This is a test email body"));
-        
+
         // Check thread ID in the message object
-        assert_eq!(message.get("threadId").unwrap().as_str().unwrap(), "thread123");
+        assert_eq!(
+            message.get("threadId").unwrap().as_str().unwrap(),
+            "thread123"
+        );
     }
 
     // Helper function for testing draft validation
     fn validate_draft(draft: &DraftEmail) -> Result<(), GmailApiError> {
         if draft.to.is_empty() {
-            return Err(GmailApiError::MessageFormatError("Recipient is required".to_string()));
+            return Err(GmailApiError::MessageFormatError(
+                "Recipient is required".to_string(),
+            ));
         }
-        
+
         if draft.subject.is_empty() {
-            return Err(GmailApiError::MessageFormatError("Subject cannot be empty".to_string()));
+            return Err(GmailApiError::MessageFormatError(
+                "Subject cannot be empty".to_string(),
+            ));
         }
-        
+
         Ok(())
     }
 
@@ -154,16 +162,16 @@ mod draft_email_tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         let validation_result = validate_draft(&invalid_recipient);
         assert!(validation_result.is_err());
-        
+
         if let Err(GmailApiError::MessageFormatError(message)) = validation_result {
             assert_eq!(message, "Recipient is required");
         } else {
             panic!("Expected MessageFormatError");
         }
-        
+
         // Test empty subject
         let invalid_subject = DraftEmail {
             to: "test@example.com".to_string(),
@@ -175,7 +183,7 @@ mod draft_email_tests {
             in_reply_to: None,
             references: None,
         };
-        
+
         let validation_result = validate_draft(&invalid_subject);
         assert!(validation_result.is_err());
 

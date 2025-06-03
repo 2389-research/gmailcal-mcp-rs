@@ -46,17 +46,17 @@ async fn test_token_manager_initialization() {
     // Test initialization with no access token
     let config_no_token = create_mock_config(false);
     let manager_no_token = TokenManager::new(&config_no_token);
-    
+
     // The expiry time should be now or in the past to force refresh
     // We can't directly access private fields, but will test behavior later
-    
+
     // Test initialization with access token
     let config_with_token = create_mock_config(true);
     let manager_with_token = TokenManager::new(&config_with_token);
-    
+
     // The expiry time should be set to now + default expiry
     // Will test this behavior in get_token tests
-    
+
     // Basic validation that the manager is created correctly
     let _ = manager_no_token;
     let _ = manager_with_token;
@@ -68,20 +68,23 @@ fn test_token_expiry_behavior() {
     // Test with an existing access token
     let config = create_mock_config(true);
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Get token - should work since we have a valid token
     let client = Client::new();
-    
+
     // Using a runtime in a standalone way to avoid nested runtime errors
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    
+
     // Test with a valid token - should return the initial token without refresh
     let token_result = runtime.block_on(token_manager.get_token(&client));
-    
+
     // Should succeed in providing the token without needing network request
-    assert!(token_result.is_ok(), "Getting existing token should succeed");
+    assert!(
+        token_result.is_ok(),
+        "Getting existing token should succeed"
+    );
     assert_eq!(token_result.unwrap(), "initial_access_token");
-    
+
     // Skip the additional tests for now to simplify
     // We'll focus on the basic token behavior without introducing mockito
 }
@@ -92,19 +95,19 @@ fn test_token_scenarios() {
     // Test with no initial access token
     let config = create_mock_config(false);
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Get token - should attempt refresh since there's no initial token
     let client = Client::new();
-    
+
     // Using a runtime in a standalone way to avoid nested runtime errors
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    
+
     // This will likely fail without a mock, but we're just testing the code path execution
     let result = runtime.block_on(token_manager.get_token(&client));
-    
+
     // Just log the result without asserting - in real environment this would likely fail
     println!("Token refresh result: {:?}", result);
-    
+
     // We're more interested in testing that the code doesn't panic rather than specific results
 }
 
@@ -120,23 +123,26 @@ fn test_empty_credentials() {
         token_refresh_threshold: 300, // Default 5 minutes
         token_expiry_buffer: 60,      // Default 1 minute
     };
-    
+
     // Create the token manager - this should work without errors
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Check that the manager was created
-    assert!(std::mem::size_of_val(&token_manager) > 0, "Token manager should be created");
-    
+    assert!(
+        std::mem::size_of_val(&token_manager) > 0,
+        "Token manager should be created"
+    );
+
     // Using a runtime in a standalone way to avoid nested runtime errors
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    
+
     // Try to get a token with empty credentials - this will likely fail but shouldn't panic
     let client = Client::new();
     let result = runtime.block_on(token_manager.get_token(&client));
-    
+
     // Just log the result - in a real environment this would fail in different ways
     println!("Empty credentials token result: {:?}", result);
-    
+
     // The test is successful if we reach this point without panicking
 }
 
@@ -146,15 +152,15 @@ fn test_token_manager_thread_safety() {
     // Create token manager with a valid token
     let config = create_mock_config(true);
     let token_manager = TokenManager::new(&config);
-    
+
     // Verify that TokenManager implements Send and Sync
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<TokenManager>();
-    
+
     // Also test that we can create and share a TokenManager
     let shared_manager = Arc::new(Mutex::new(token_manager));
     let _clone = Arc::clone(&shared_manager);
-    
+
     // If we can clone the Arc and compile, then the test passes
     println!("TokenManager is thread-safe");
 }
@@ -164,25 +170,25 @@ fn test_token_manager_thread_safety() {
 async fn test_token_expiry_from_env() {
     // Clean environment before test
     clear_env_vars();
-    
+
     // Test with default expiry
     let config = create_mock_config(true);
     let mut token_manager = TokenManager::new(&config);
-    
+
     // Verify the default is working
     let client = Client::new();
     let _ = token_manager.get_token(&client).await; // Outcome doesn't matter for this test
-    
+
     // Now set custom expiry
     env::set_var("TOKEN_EXPIRY_SECONDS", "120"); // 2 minutes
-    
+
     // Create a new token manager that should use the custom expiry
     let config = create_mock_config(true);
     let token_manager_custom_expiry = TokenManager::new(&config);
-    
+
     // We can't directly verify the expiry time, but having the code run is sufficient
     let _ = token_manager_custom_expiry;
-    
+
     // Clean up environment after test
     clear_env_vars();
 }

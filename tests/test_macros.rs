@@ -140,10 +140,8 @@ macro_rules! with_mock_time {
 #[macro_export]
 macro_rules! assert_timeout {
     ($timeout_ms:expr, $expression:expr) => {{
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis($timeout_ms),
-            $expression
-        ).await;
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis($timeout_ms), $expression).await;
         assert!(result.is_err(), "Expected timeout but expression completed");
     }};
 }

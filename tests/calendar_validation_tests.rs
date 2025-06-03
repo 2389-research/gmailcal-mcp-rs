@@ -3,7 +3,9 @@
 /// This module contains tests for the Calendar Event validation functionality,
 /// focusing on validation of various edge cases and invalid inputs.
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use mcp_gmailcal::calendar_api::{Attendee, CalendarEvent, ConferenceData, ConferenceSolution, EntryPoint, EventOrganizer};
+use mcp_gmailcal::calendar_api::{
+    Attendee, CalendarEvent, ConferenceData, ConferenceSolution, EntryPoint, EventOrganizer,
+};
 use mcp_gmailcal::errors::CalendarApiError;
 use uuid::Uuid;
 
@@ -41,7 +43,7 @@ impl EventValidator {
 
         Ok(())
     }
-    
+
     // Method to validate a conference data object
     fn validate_conference_data(conf_data: &ConferenceData) -> Result<(), CalendarApiError> {
         // Validate conference solution
@@ -56,14 +58,14 @@ impl EventValidator {
                 "Conference solution is required".to_string(),
             ));
         }
-        
+
         // At least one entry point is required
         if conf_data.entry_points.is_empty() {
             return Err(CalendarApiError::EventFormatError(
                 "At least one conference entry point is required".to_string(),
             ));
         }
-        
+
         // Validate each entry point
         for entry_point in &conf_data.entry_points {
             if entry_point.entry_point_type.is_empty() {
@@ -71,42 +73,46 @@ impl EventValidator {
                     "Entry point type cannot be empty".to_string(),
                 ));
             }
-            
+
             if entry_point.uri.is_empty() {
                 return Err(CalendarApiError::EventFormatError(
                     "Entry point URI cannot be empty".to_string(),
                 ));
             }
-            
+
             // Validate URI format based on type
             match entry_point.entry_point_type.as_str() {
                 "video" => {
-                    if !entry_point.uri.starts_with("http") && !entry_point.uri.starts_with("https") {
-                        return Err(CalendarApiError::EventFormatError(
-                            format!("Video entry point URI must be an HTTP(S) URL: {}", entry_point.uri)
-                        ));
+                    if !entry_point.uri.starts_with("http") && !entry_point.uri.starts_with("https")
+                    {
+                        return Err(CalendarApiError::EventFormatError(format!(
+                            "Video entry point URI must be an HTTP(S) URL: {}",
+                            entry_point.uri
+                        )));
                     }
-                },
+                }
                 "phone" => {
                     if !entry_point.uri.starts_with("tel:") {
-                        return Err(CalendarApiError::EventFormatError(
-                            format!("Phone entry point URI must use tel: protocol: {}", entry_point.uri)
-                        ));
+                        return Err(CalendarApiError::EventFormatError(format!(
+                            "Phone entry point URI must use tel: protocol: {}",
+                            entry_point.uri
+                        )));
                     }
-                },
+                }
                 "sip" => {
                     if !entry_point.uri.starts_with("sip:") {
-                        return Err(CalendarApiError::EventFormatError(
-                            format!("SIP entry point URI must use sip: protocol: {}", entry_point.uri)
-                        ));
+                        return Err(CalendarApiError::EventFormatError(format!(
+                            "SIP entry point URI must use sip: protocol: {}",
+                            entry_point.uri
+                        )));
                     }
-                },
+                }
                 _ => {
                     // Accept any URI for other types
                 }
             }
         }
-        
+
         Ok(())
     }
 }
@@ -156,7 +162,7 @@ mod calendar_validation_tests {
             conference_data: None,
         }
     }
-    
+
     // Helper to create valid conference data
     fn create_test_conference_data() -> ConferenceData {
         ConferenceData {
@@ -295,19 +301,19 @@ mod calendar_validation_tests {
         // Verify validation passes
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_conference_data_validation() {
         // Create a valid conference data object
         let conf_data = create_test_conference_data();
-        
+
         // Validate the conference data
         let result = EventValidator::validate_conference_data(&conf_data);
-        
+
         // Verify validation passes
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_invalid_conference_solution() {
         // Create conference data with missing solution name
@@ -316,10 +322,10 @@ mod calendar_validation_tests {
             name: "".to_string(), // Empty name
             key: Some("meet".to_string()),
         });
-        
+
         // Validate the conference data
         let result = EventValidator::validate_conference_data(&conf_data);
-        
+
         // Verify validation fails
         assert!(result.is_err());
         if let Err(err) = result {
@@ -330,14 +336,14 @@ mod calendar_validation_tests {
                 _ => panic!("Expected EventFormatError but got different error type"),
             }
         }
-        
+
         // Create conference data with missing solution
         let mut conf_data = create_test_conference_data();
         conf_data.conference_solution = None;
-        
+
         // Validate the conference data
         let result = EventValidator::validate_conference_data(&conf_data);
-        
+
         // Verify validation fails
         assert!(result.is_err());
         if let Err(err) = result {
@@ -349,16 +355,16 @@ mod calendar_validation_tests {
             }
         }
     }
-    
+
     #[test]
     fn test_invalid_entry_points() {
         // Create conference data with no entry points
         let mut conf_data = create_test_conference_data();
         conf_data.entry_points = vec![];
-        
+
         // Validate the conference data
         let result = EventValidator::validate_conference_data(&conf_data);
-        
+
         // Verify validation fails
         assert!(result.is_err());
         if let Err(err) = result {
@@ -369,20 +375,18 @@ mod calendar_validation_tests {
                 _ => panic!("Expected EventFormatError but got different error type"),
             }
         }
-        
+
         // Create conference data with invalid entry point type
         let mut conf_data = create_test_conference_data();
-        conf_data.entry_points = vec![
-            EntryPoint {
-                entry_point_type: "".to_string(), // Empty type
-                uri: "https://meet.google.com/abc-defg-hij".to_string(),
-                label: Some("Google Meet".to_string()),
-            },
-        ];
-        
+        conf_data.entry_points = vec![EntryPoint {
+            entry_point_type: "".to_string(), // Empty type
+            uri: "https://meet.google.com/abc-defg-hij".to_string(),
+            label: Some("Google Meet".to_string()),
+        }];
+
         // Validate the conference data
         let result = EventValidator::validate_conference_data(&conf_data);
-        
+
         // Verify validation fails
         assert!(result.is_err());
         if let Err(err) = result {
@@ -393,20 +397,18 @@ mod calendar_validation_tests {
                 _ => panic!("Expected EventFormatError but got different error type"),
             }
         }
-        
+
         // Create conference data with invalid URI
         let mut conf_data = create_test_conference_data();
-        conf_data.entry_points = vec![
-            EntryPoint {
-                entry_point_type: "video".to_string(),
-                uri: "".to_string(), // Empty URI
-                label: Some("Google Meet".to_string()),
-            },
-        ];
-        
+        conf_data.entry_points = vec![EntryPoint {
+            entry_point_type: "video".to_string(),
+            uri: "".to_string(), // Empty URI
+            label: Some("Google Meet".to_string()),
+        }];
+
         // Validate the conference data
         let result = EventValidator::validate_conference_data(&conf_data);
-        
+
         // Verify validation fails
         assert!(result.is_err());
         if let Err(err) = result {
@@ -418,22 +420,20 @@ mod calendar_validation_tests {
             }
         }
     }
-    
+
     #[test]
     fn test_invalid_uri_format() {
         // Test invalid video URL format (should be HTTP/HTTPS)
         let mut conf_data = create_test_conference_data();
-        conf_data.entry_points = vec![
-            EntryPoint {
-                entry_point_type: "video".to_string(),
-                uri: "ftp://meet.example.com".to_string(), // Not HTTP/HTTPS
-                label: Some("Invalid Video".to_string()),
-            },
-        ];
-        
+        conf_data.entry_points = vec![EntryPoint {
+            entry_point_type: "video".to_string(),
+            uri: "ftp://meet.example.com".to_string(), // Not HTTP/HTTPS
+            label: Some("Invalid Video".to_string()),
+        }];
+
         // Validate the conference data
         let result = EventValidator::validate_conference_data(&conf_data);
-        
+
         // Verify validation fails
         assert!(result.is_err());
         if let Err(err) = result {
@@ -444,20 +444,18 @@ mod calendar_validation_tests {
                 _ => panic!("Expected EventFormatError but got different error type"),
             }
         }
-        
+
         // Test invalid phone URL format (should use tel: protocol)
         let mut conf_data = create_test_conference_data();
-        conf_data.entry_points = vec![
-            EntryPoint {
-                entry_point_type: "phone".to_string(),
-                uri: "+11234567890".to_string(), // Missing tel: protocol
-                label: Some("Invalid Phone".to_string()),
-            },
-        ];
-        
+        conf_data.entry_points = vec![EntryPoint {
+            entry_point_type: "phone".to_string(),
+            uri: "+11234567890".to_string(), // Missing tel: protocol
+            label: Some("Invalid Phone".to_string()),
+        }];
+
         // Validate the conference data
         let result = EventValidator::validate_conference_data(&conf_data);
-        
+
         // Verify validation fails
         assert!(result.is_err());
         if let Err(err) = result {
@@ -468,20 +466,18 @@ mod calendar_validation_tests {
                 _ => panic!("Expected EventFormatError but got different error type"),
             }
         }
-        
+
         // Test invalid SIP URL format (should use sip: protocol)
         let mut conf_data = create_test_conference_data();
-        conf_data.entry_points = vec![
-            EntryPoint {
-                entry_point_type: "sip".to_string(),
-                uri: "user@example.com".to_string(), // Missing sip: protocol
-                label: Some("Invalid SIP".to_string()),
-            },
-        ];
-        
+        conf_data.entry_points = vec![EntryPoint {
+            entry_point_type: "sip".to_string(),
+            uri: "user@example.com".to_string(), // Missing sip: protocol
+            label: Some("Invalid SIP".to_string()),
+        }];
+
         // Validate the conference data
         let result = EventValidator::validate_conference_data(&conf_data);
-        
+
         // Verify validation fails
         assert!(result.is_err());
         if let Err(err) = result {
@@ -493,38 +489,38 @@ mod calendar_validation_tests {
             }
         }
     }
-    
+
     #[test]
     fn test_all_day_event() {
         // Create an all-day event (midnight to midnight)
         let mut event = create_test_event();
-        
+
         // Set start time to midnight UTC
         event.start_time = Utc.ymd(2025, 5, 15).and_hms(0, 0, 0);
-        
+
         // Set end time to midnight the next day (24 hours later)
         event.end_time = Utc.ymd(2025, 5, 16).and_hms(0, 0, 0);
-        
+
         // Validate the event
         let result = EventValidator::validate_event(&event);
-        
+
         // Verify validation passes
         assert!(result.is_ok());
-        
+
         // Verify it's a full 24 hours
         let duration = event.end_time - event.start_time;
         assert_eq!(duration.num_hours(), 24);
     }
-    
+
     #[test]
     fn test_zero_duration_event() {
         // Create an event with zero duration (start time equals end time)
         let mut event = create_test_event();
         event.end_time = event.start_time;
-        
+
         // Validate the event
         let result = EventValidator::validate_event(&event);
-        
+
         // Verify validation fails (we disallow zero-duration events)
         assert!(result.is_err());
         if let Err(err) = result {
@@ -536,29 +532,29 @@ mod calendar_validation_tests {
             }
         }
     }
-    
+
     #[test]
     fn test_very_long_duration_event() {
         // Create an event that spans a very long period (1 year)
         let mut event = create_test_event();
         event.end_time = event.start_time + Duration::days(365);
-        
+
         // Validate the event
         let result = EventValidator::validate_event(&event);
-        
+
         // Verify validation passes (long duration events are allowed)
         assert!(result.is_ok());
-        
+
         // Verify the duration is correct
         let duration = event.end_time - event.start_time;
         assert_eq!(duration.num_days(), 365);
     }
-    
+
     #[test]
     fn test_optional_attendee() {
         // Create an event with an optional attendee
         let mut event = create_test_event();
-        
+
         // Add an optional attendee
         event.attendees.push(Attendee {
             email: "optional@example.com".to_string(),
@@ -566,25 +562,27 @@ mod calendar_validation_tests {
             response_status: Some("needsAction".to_string()),
             optional: Some(true), // This attendee is optional
         });
-        
+
         // Validate the event
         let result = EventValidator::validate_event(&event);
-        
+
         // Verify validation passes
         assert!(result.is_ok());
-        
+
         // Verify the optional flag is set correctly
-        let optional_attendee = event.attendees.iter()
+        let optional_attendee = event
+            .attendees
+            .iter()
             .find(|a| a.email == "optional@example.com")
             .unwrap();
         assert_eq!(optional_attendee.optional, Some(true));
     }
-    
+
     #[test]
     fn test_resource_room_attendee() {
         // Create an event with a resource (room) attendee
         let mut event = create_test_event();
-        
+
         // Add a resource attendee (usually a room)
         event.attendees.push(Attendee {
             email: "room123@resource.calendar.google.com".to_string(), // Resource email format
@@ -592,41 +590,41 @@ mod calendar_validation_tests {
             response_status: Some("accepted".to_string()),
             optional: None,
         });
-        
+
         // Validate the event
         let result = EventValidator::validate_event(&event);
-        
+
         // Verify validation passes
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_datetime_formats() {
         // Test various datetime formats and conversions
-        
+
         // RFC3339 format with offset
         let dt1 = DateTime::parse_from_rfc3339("2025-05-15T10:30:45+02:00")
             .unwrap()
             .with_timezone(&Utc);
-        
+
         // RFC3339 format with Z (UTC)
         let dt2 = DateTime::parse_from_rfc3339("2025-05-15T08:30:45Z")
             .unwrap()
             .with_timezone(&Utc);
-        
+
         // These should be the same time in UTC
         assert_eq!(dt1, dt2);
         assert_eq!(dt1.to_rfc3339(), "2025-05-15T08:30:45+00:00");
         assert_eq!(dt2.to_rfc3339(), "2025-05-15T08:30:45+00:00");
-        
+
         // Create an event with these times
         let mut event = create_test_event();
         event.start_time = dt1;
         event.end_time = dt1 + Duration::hours(1);
-        
+
         // Validate the event
         let result = EventValidator::validate_event(&event);
-        
+
         // Verify validation passes
         assert!(result.is_ok());
     }

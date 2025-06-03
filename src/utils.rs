@@ -8,7 +8,7 @@ use serde_json;
 pub mod error_codes {
     /// General internal errors
     pub const GENERAL_ERROR: u32 = 1000;
-    
+
     /// Configuration related errors (environment variables, etc.)
     pub const CONFIG_ERROR: u32 = 1001;
 
@@ -114,7 +114,7 @@ pub fn to_mcp_error(message: &str, code: u32) -> McpError {
     // Create a detailed error message with multiple parts
     let detailed_error =
         format!(
-        "ERROR CODE {}: {}\n\nDETAILS: {}\n\nTROUBLESHOOTING: {}\n\nSERVER MESSAGE: {}", 
+        "ERROR CODE {}: {}\n\nDETAILS: {}\n\nTROUBLESHOOTING: {}\n\nSERVER MESSAGE: {}",
         code, description, message, steps,
         "If the problem persists, contact the server administrator and reference this error code."
     );
@@ -143,7 +143,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                     format!(
                         "Gmail API rate limit exceeded: {}. The server has made too many requests to the Gmail API. \
                         This typically happens when many requests are made in quick succession. \
-                        Please try again in a few minutes.", 
+                        Please try again in a few minutes.",
                         e
                     )
                 )
@@ -153,7 +153,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                     format!(
                         "Network error while connecting to Gmail API: {}. The server couldn't establish a \
                         connection to the Gmail API. This may be due to network issues or the Gmail API \
-                        might be experiencing downtime.", 
+                        might be experiencing downtime.",
                         e
                     )
                 )
@@ -163,7 +163,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                     format!(
                         "Gmail API authentication failed: {}. The OAuth token used to authenticate with \
                         Gmail may have expired or been revoked. Please check your credentials and try \
-                        regenerating your refresh token.", 
+                        regenerating your refresh token.",
                         e
                     )
                 )
@@ -172,7 +172,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                     error_codes::MESSAGE_FORMAT_ERROR,
                     format!(
                         "Gmail API response format error: {}. The API returned data in an unexpected format. \
-                        This might be due to changes in the Gmail API or issues with specific messages.", 
+                        This might be due to changes in the Gmail API or issues with specific messages.",
                         e
                     )
                 )
@@ -182,7 +182,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                     format!(
                         "Gmail API resource not found: {}. The requested message or resource doesn't exist \
                         or you don't have permission to access it. Please check the message ID and ensure \
-                        it exists in your Gmail account.", 
+                        it exists in your Gmail account.",
                         e
                     )
                 )
@@ -191,7 +191,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                     error_codes::API_ERROR,
                     format!(
                         "Unspecified Gmail API error: {}. An unexpected error occurred when communicating \
-                        with the Gmail API. Please check the server logs for more details.", 
+                        with the Gmail API. Please check the server logs for more details.",
                         e
                     )
                 )
@@ -202,7 +202,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
         GmailApiError::AuthError(e) => {
             let detailed_msg = format!(
                 "Gmail authentication error: {}. Failed to authenticate with the Gmail API using the provided \
-                credentials. Please verify your client ID, client secret, and refresh token.", 
+                credentials. Please verify your client ID, client secret, and refresh token.",
                 e
             );
             to_mcp_error(&detailed_msg, error_codes::AUTH_ERROR)
@@ -210,14 +210,14 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
         GmailApiError::MessageRetrievalError(e) => {
             let detailed_msg = format!(
                 "Message retrieval error: {}. Failed to retrieve the requested message from Gmail. \
-                This may be due to the message being deleted, access permissions, or temporary Gmail API issues.", 
+                This may be due to the message being deleted, access permissions, or temporary Gmail API issues.",
                 e
             );
             to_mcp_error(&detailed_msg, error_codes::API_ERROR)
         }
         GmailApiError::MessageFormatError(e) => {
             let detailed_msg = format!(
-                "Message format error: {}. The Gmail API returned a malformed message or one with missing required fields.", 
+                "Message format error: {}. The Gmail API returned a malformed message or one with missing required fields.",
                 e
             );
             to_mcp_error(&detailed_msg, error_codes::MESSAGE_FORMAT_ERROR)
@@ -226,7 +226,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
             let detailed_msg = format!(
                 "Network error: {}. The server couldn't establish a connection to the Gmail API. \
                 This might be due to network configuration issues, outages, or firewall restrictions. \
-                Please check your internet connection and server network configuration.", 
+                Please check your internet connection and server network configuration.",
                 e
             );
             to_mcp_error(&detailed_msg, error_codes::API_ERROR)
@@ -236,7 +236,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
                 "Rate limit error: {}. The Gmail API has rate-limited the server's requests. \
                 This happens when too many requests are made in a short period of time. \
                 The server will automatically retry after a cooldown period, but you may need to wait \
-                or reduce the frequency of requests.", 
+                or reduce the frequency of requests.",
                 e
             );
             to_mcp_error(&detailed_msg, error_codes::API_ERROR)
@@ -245,7 +245,7 @@ pub fn map_gmail_error(err: GmailApiError) -> McpError {
             let detailed_msg = format!(
                 "Token cache error: {}. The server encountered an error with the token cache. \
                 This is an internal error and should not affect functionality. \
-                The application will continue with in-memory token handling.", 
+                The application will continue with in-memory token handling.",
                 e
             );
             to_mcp_error(&detailed_msg, error_codes::GENERAL_ERROR)

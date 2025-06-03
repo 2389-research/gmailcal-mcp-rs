@@ -2,7 +2,8 @@
 
 ## Build/Test/Run Commands
 - **Build**: `cargo build`
-- **Run**: `cargo run`
+- **Run (stdio)**: `cargo run` or `cargo run -- --transport stdio`
+- **Run (SSE)**: `cargo run -- --transport sse --port 8080 --host 127.0.0.1`
 - **Test all**: `cargo test`
 - **Test single**: `cargo test test_name`
 - **Integration tests**: `cargo test --test integration_tests`
@@ -12,13 +13,14 @@
 - **Security audit**: `cargo audit`
 - **Benchmarking**: `cargo bench`
 - **Code coverage**: `cargo tarpaulin`
-- **Run with MCP inspector**: `npx @modelcontextprotocol/inspector cargo run`
+- **Run with MCP inspector (stdio)**: `npx @modelcontextprotocol/inspector cargo run`
+- **Run with MCP inspector (SSE)**: `npx @modelcontextprotocol/inspector http://localhost:8080/sse`
 
 ## Code Style Guidelines
 - **Formatting**: Follow Rust standard formatting (rustfmt)
 - **Error handling**: Use `thiserror` for custom errors, return Result types
 - **Logging**: Use `log` crate with appropriate levels (debug, info, error)
-- **Naming**: 
+- **Naming**:
   - Use snake_case for functions, variables, modules
   - Use CamelCase for types, traits, enums
 - **File organization**: Group related functionality in modules

@@ -42,6 +42,8 @@ pub mod cli;
 pub mod oauth;
 pub mod prompts;
 pub mod server;
+pub mod sse_server;
+pub mod sse_transport;
 
 // ===== Re-exports =====
 
@@ -59,7 +61,7 @@ pub use crate::logging::setup_logging;
 
 // Authentication
 pub use crate::auth::TokenManager;
-pub use crate::token_cache::{TokenCache, TokenCacheConfig, CachedToken};
+pub use crate::token_cache::{CachedToken, TokenCache, TokenCacheConfig};
 
 // Gmail API types
 pub use crate::gmail_api::{DraftEmail, EmailMessage, GmailService};
@@ -84,3 +86,4 @@ pub use crate::utils::{
 
 // Server implementation
 pub use crate::server::GmailServer;
+pub use crate::sse_server::SseServer;

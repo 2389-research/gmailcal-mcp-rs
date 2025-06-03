@@ -17,10 +17,10 @@ pub enum ConfigError {
 pub enum AppError {
     #[error("Cache is disabled")]
     CacheDisabled,
-    
+
     #[error("IO Error: {0}")]
     IoError(String),
-    
+
     #[error("Encryption error: {0}")]
     EncryptionError(String),
 }
@@ -45,7 +45,7 @@ pub enum GmailApiError {
 
     #[error("Rate limit error: {0}")]
     RateLimitError(String),
-    
+
     #[error("Token cache error: {0}")]
     CacheError(String),
 }

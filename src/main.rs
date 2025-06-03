@@ -1,8 +1,11 @@
 use clap::Parser;
 use log::{debug, error, info, LevelFilter};
 use mcp_attr::server::serve_stdio;
-use mcp_gmailcal::{cli::{Cli, Commands}, oauth, setup_logging, GmailServer};
-use std::env;
+use mcp_gmailcal::{
+    cli::{Cli, Commands},
+    oauth, setup_logging, GmailServer, SseServer,
+};
+use std::{env, net::SocketAddr};
 
 // Main function to start the MCP server
 #[tokio::main]
@@ -66,21 +69,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Logs will be saved to {}", log_file);
     debug!("Debug logging enabled");
 
-    // Start the MCP server
-    debug!("Creating GmailServer instance");
-    let server = GmailServer::new();
+    // Choose transport based on CLI argument
+    match cli.transport.as_str() {
+        "stdio" => {
+            // Start the MCP server with stdio transport
+            debug!("Creating GmailServer instance for stdio transport");
+            let server = GmailServer::new();
 
-    // Run the server
-    info!("Starting MCP server with stdio interface");
-    let result = serve_stdio(server).await;
+            // Run the server
+            info!("Starting MCP server with stdio interface");
+            let result = serve_stdio(server).await;
 
-    // Log the result
-    if let Err(ref e) = result {
-        error!("Error running MCP server: {}", e);
-    } else {
-        info!("MCP server completed successfully");
+            // Log the result
+            if let Err(ref e) = result {
+                error!("Error running MCP server: {}", e);
+            } else {
+                info!("MCP server completed successfully");
+            }
+
+            debug!("Exiting application");
+            result.map_err(|e| e.into())
+        }
+        "sse" => {
+            // Start the MCP server with SSE transport
+            debug!("Creating SseServer instance for SSE transport");
+            let server = SseServer::new();
+
+            // Build the socket address
+            let addr: SocketAddr = format!("{}:{}", cli.host, cli.port).parse()?;
+
+            info!("Starting MCP server with SSE transport on {}", addr);
+
+            // Run the SSE server
+            server.serve(addr).await?;
+
+            Ok(())
+        }
+        _ => {
+            error!("Unknown transport: {}", cli.transport);
+            eprintln!(
+                "Unknown transport: {}. Use 'stdio' or 'sse'.",
+                cli.transport
+            );
+            std::process::exit(1);
+        }
     }
-
-    debug!("Exiting application");
-    result.map_err(|e| e.into())
 }
