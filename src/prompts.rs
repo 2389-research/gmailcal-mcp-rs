@@ -311,8 +311,33 @@ When helping users prioritize emails, consider these factors:
 When suggesting prioritization, explain the reasoning briefly to help the user understand the recommendation and adjust their approach accordingly.
 "#;
 
+/// Email threading prompt - CRITICAL for reply functionality
+pub const EMAIL_THREADING_PROMPT: &str = r#"
+🚨 THREADING IS ESSENTIAL FOR EMAIL REPLIES 🚨
+
+When creating ANY email reply or response:
+1. ALWAYS copy the thread_id from the original message
+2. ALWAYS set in_reply_to to the original message ID with angle brackets: "<message_id>"
+3. ALWAYS set references to the original message ID with angle brackets: "<message_id>"
+
+Example:
+- Original message ID: "abc123"
+- Set in_reply_to: "<abc123>"
+- Set references: "<abc123>"
+- Copy thread_id exactly as received
+
+FAILURE TO DO THIS = BROKEN EMAIL THREADS
+"#;
+
 /// Email drafting assistance prompt
 pub const EMAIL_DRAFTING_PROMPT: &str = r#"
+🚨 CRITICAL: ALWAYS PRESERVE EMAIL THREADING 🚨
+When replying to emails, you MUST set these fields to maintain thread continuity:
+- thread_id: Set to the original message's thread_id
+- in_reply_to: Set to original message ID with angle brackets: "<message_id>"
+- references: Set to original message ID with angle brackets: "<message_id>"
+WITHOUT these fields, replies appear as forwards, not threaded replies!
+
 When helping users draft effective emails, follow these guidelines:
 
 1. Structure:
@@ -346,29 +371,19 @@ When helping users draft effective emails, follow these guidelines:
    - For sensitive topics: be diplomatic yet clear
    - For group emails: consider what everyone needs to know
 
-5. Reply Threading:
-   - When replying to emails, always set the following fields to maintain thread continuity:
-     * thread_id: Set to the original message's thread_id
-     * in_reply_to: Set to the original message's ID with angle brackets (format: "<message_id>")
-     * references: Set to the original message's ID with angle brackets (format: "<message_id>")
-   - Without these fields, replies will appear as forwards rather than in the email thread
-
-6. Iterating on Drafts:
+5. Iterating on Drafts:
    - CRITICAL: When modifying an email draft, you MUST update the existing draft rather than creating a new one
    - NEVER create a new draft when editing - ALWAYS update the existing draft
    - ALWAYS verify the draft was successfully updated after every modification
    - After each update, explicitly confirm to the user that the draft has been updated
-   - For threading replies, YOU MUST preserve all threading fields (thread_id, in_reply_to, references)
-   - FAILURE to maintain these threading fields will result in broken email threads
    - If a draft update fails, immediately notify the user and retry with appropriate error handling
 
-7. Before Sending Checklist:
+6. Before Sending Checklist:
    - Verify all necessary information is included
    - Check that tone is appropriate
    - Ensure requests or questions are clear
    - Confirm any attachments are mentioned and included
    - Review for typos, grammar issues, or unclear phrasing
-   - For replies, confirm threading fields are properly set
 
 Adapt these guidelines based on the specific purpose, audience, and context of the email being drafted.
 "#;

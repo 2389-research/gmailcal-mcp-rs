@@ -3,14 +3,20 @@
 /// This module contains comprehensive tests for the Google People API functionality,
 /// focusing on contact operations, data formatting, and error handling.
 use mcp_gmailcal::errors::PeopleApiError;
-use mcp_gmailcal::people_api::{Contact, ContactList, EmailAddress, Organization, PersonName, PhoneNumber, Photo};
+use mcp_gmailcal::people_api::{
+    Contact, ContactList, EmailAddress, Organization, PersonName, PhoneNumber, Photo,
+};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 
 // Define a proper interface for PeopleClient that we can mock
 trait PeopleClientInterface {
     fn list_contacts(&self, max_results: Option<u32>) -> Result<ContactList, PeopleApiError>;
-    fn search_contacts(&self, query: &str, max_results: Option<u32>) -> Result<ContactList, PeopleApiError>;
+    fn search_contacts(
+        &self,
+        query: &str,
+        max_results: Option<u32>,
+    ) -> Result<ContactList, PeopleApiError>;
     fn get_contact(&self, resource_name: &str) -> Result<Contact, PeopleApiError>;
     fn parse_contact(&self, data: &Value) -> Result<Contact, PeopleApiError>;
 }
@@ -30,7 +36,11 @@ impl MockablePeopleClient {
         client.list_contacts(max_results)
     }
 
-    fn search_contacts(&self, query: &str, max_results: Option<u32>) -> Result<ContactList, PeopleApiError> {
+    fn search_contacts(
+        &self,
+        query: &str,
+        max_results: Option<u32>,
+    ) -> Result<ContactList, PeopleApiError> {
         let client = self.client.lock().unwrap();
         client.search_contacts(query, max_results)
     }
@@ -113,44 +123,48 @@ fn create_test_contact_json(
     }]);
 
     // Create email addresses array
-    let email_addresses = json!(
-        emails.iter().map(|(value, type_)| {
+    let email_addresses = json!(emails
+        .iter()
+        .map(|(value, type_)| {
             json!({
                 "value": value,
                 "type": type_
             })
-        }).collect::<Vec<_>>()
-    );
+        })
+        .collect::<Vec<_>>());
 
     // Create phone numbers array
-    let phone_numbers = json!(
-        phones.iter().map(|(value, type_)| {
+    let phone_numbers = json!(phones
+        .iter()
+        .map(|(value, type_)| {
             json!({
                 "value": value,
                 "type": type_
             })
-        }).collect::<Vec<_>>()
-    );
+        })
+        .collect::<Vec<_>>());
 
     // Create organizations array
-    let organizations_json = json!(
-        organizations.iter().map(|(name, title)| {
+    let organizations_json = json!(organizations
+        .iter()
+        .map(|(name, title)| {
             json!({
                 "name": name,
                 "title": title
             })
-        }).collect::<Vec<_>>()
-    );
+        })
+        .collect::<Vec<_>>());
 
     // Create photos array
-    let photos = json!(
-        photo_urls.iter().map(|(url, default)| {
+    let photos = json!(photo_urls
+        .iter()
+        .map(|(url, default)| {
             json!({
                 "url": url,
                 "default": default
             })
-        }).collect::<Vec<_>>()
-    );
+        })
+        .collect::<Vec<_>>());
 
     json!({
         "resourceName": resource_name,
@@ -163,10 +177,7 @@ fn create_test_contact_json(
 }
 
 // Create a contact JSON with additional fields (edge cases)
-fn create_extended_contact_json(
-    resource_name: &str,
-    display_name: &str,
-) -> Value {
+fn create_extended_contact_json(resource_name: &str, display_name: &str) -> Value {
     json!({
         "resourceName": resource_name,
         "names": [{
@@ -176,7 +187,7 @@ fn create_extended_contact_json(
             "honorificPrefix": "Dr.",
             "honorificSuffix": "PhD",
             "middleName": "Test",
-            "phoneticGivenName": "ehk-STEN-ded",
+            "phoneticGivenName": "ehk-STEN-dead",
             "phoneticFamilyName": "KAHN-takt"
         }],
         "emailAddresses": [{
@@ -427,7 +438,9 @@ impl PeopleClientInterface for MockPeopleClient {
     fn list_contacts(&self, max_results: Option<u32>) -> Result<ContactList, PeopleApiError> {
         if self.should_fail {
             return match self.fail_mode {
-                FailMode::Auth => Err(PeopleApiError::AuthError("Authentication failed".to_string())),
+                FailMode::Auth => Err(PeopleApiError::AuthError(
+                    "Authentication failed".to_string(),
+                )),
                 FailMode::Network => Err(PeopleApiError::NetworkError("Network error".to_string())),
                 FailMode::Api => Err(PeopleApiError::ApiError("API error".to_string())),
                 FailMode::Parse => Err(PeopleApiError::ParseError("Parse error".to_string())),
@@ -449,10 +462,16 @@ impl PeopleClientInterface for MockPeopleClient {
         })
     }
 
-    fn search_contacts(&self, query: &str, max_results: Option<u32>) -> Result<ContactList, PeopleApiError> {
+    fn search_contacts(
+        &self,
+        query: &str,
+        max_results: Option<u32>,
+    ) -> Result<ContactList, PeopleApiError> {
         if self.should_fail {
             return match self.fail_mode {
-                FailMode::Auth => Err(PeopleApiError::AuthError("Authentication failed".to_string())),
+                FailMode::Auth => Err(PeopleApiError::AuthError(
+                    "Authentication failed".to_string(),
+                )),
                 FailMode::Network => Err(PeopleApiError::NetworkError("Network error".to_string())),
                 FailMode::Api => Err(PeopleApiError::ApiError("API error".to_string())),
                 FailMode::Parse => Err(PeopleApiError::ParseError("Parse error".to_string())),
@@ -515,7 +534,9 @@ impl PeopleClientInterface for MockPeopleClient {
     fn get_contact(&self, resource_name: &str) -> Result<Contact, PeopleApiError> {
         if self.should_fail {
             return match self.fail_mode {
-                FailMode::Auth => Err(PeopleApiError::AuthError("Authentication failed".to_string())),
+                FailMode::Auth => Err(PeopleApiError::AuthError(
+                    "Authentication failed".to_string(),
+                )),
                 FailMode::Network => Err(PeopleApiError::NetworkError("Network error".to_string())),
                 FailMode::Api => Err(PeopleApiError::ApiError("API error".to_string())),
                 FailMode::Parse => Err(PeopleApiError::ParseError("Parse error".to_string())),
@@ -692,7 +713,7 @@ mod comprehensive_people_api_tests {
         // Test listing all contacts
         let result = client.list_contacts(None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 5); // Updated to 5 with added international contacts
         assert_eq!(contact_list.total_items, Some(5));
@@ -710,7 +731,7 @@ mod comprehensive_people_api_tests {
         // Test with max_results
         let result = client.list_contacts(Some(2));
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 2);
         assert_eq!(contact_list.total_items, Some(5)); // Still reports total of 5
@@ -727,7 +748,10 @@ mod comprehensive_people_api_tests {
         let network_client = create_failing_client(FailMode::Network);
         let result = network_client.list_contacts(None);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), PeopleApiError::NetworkError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            PeopleApiError::NetworkError(_)
+        ));
 
         let api_client = create_failing_client(FailMode::Api);
         let result = api_client.list_contacts(None);
@@ -747,53 +771,64 @@ mod comprehensive_people_api_tests {
         // Test searching by name
         let result = client.search_contacts("John", None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         // Both "John Doe" and "Alex Johnson" contain "John"
         assert_eq!(contact_list.contacts.len(), 2);
-        
+
         // Find the contact with display name "John Doe"
-        let john_doe = contact_list.contacts.iter()
+        let john_doe = contact_list
+            .contacts
+            .iter()
             .find(|c| c.name.as_ref().unwrap().display_name == "John Doe")
             .expect("Should find John Doe");
-            
+
         assert_eq!(john_doe.name.as_ref().unwrap().display_name, "John Doe");
 
         // Test searching by email
         let result = client.search_contacts("smith", None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 1);
-        assert_eq!(contact_list.contacts[0].name.as_ref().unwrap().display_name, "Jane Smith");
+        assert_eq!(
+            contact_list.contacts[0].name.as_ref().unwrap().display_name,
+            "Jane Smith"
+        );
 
         // Test searching by organization
         let result = client.search_contacts("ABC Company", None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 1);
-        assert_eq!(contact_list.contacts[0].name.as_ref().unwrap().display_name, "Alex Johnson");
+        assert_eq!(
+            contact_list.contacts[0].name.as_ref().unwrap().display_name,
+            "Alex Johnson"
+        );
 
         // Test searching by position
         let result = client.search_contacts("Director", None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 1);
-        assert_eq!(contact_list.contacts[0].name.as_ref().unwrap().display_name, "Alex Johnson");
+        assert_eq!(
+            contact_list.contacts[0].name.as_ref().unwrap().display_name,
+            "Alex Johnson"
+        );
 
         // Test with no results
         let result = client.search_contacts("NonExistent", None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 0);
 
         // Test with max_results
         let result = client.search_contacts("e", Some(1)); // Should match all, but limit to 1
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 1);
     }
@@ -801,37 +836,46 @@ mod comprehensive_people_api_tests {
     #[test]
     fn test_search_international_contacts() {
         let client = create_test_client();
-        
+
         // Test searching by international name
         let result = client.search_contacts("José", None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 1);
-        assert_eq!(contact_list.contacts[0].name.as_ref().unwrap().display_name, "José García");
-        
+        assert_eq!(
+            contact_list.contacts[0].name.as_ref().unwrap().display_name,
+            "José García"
+        );
+
         // Test searching by partial international name (accent insensitive)
         let result = client.search_contacts("jose", None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 1);
-        
+
         // Test searching by Chinese name
         let result = client.search_contacts("张伟", None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 1);
-        assert_eq!(contact_list.contacts[0].name.as_ref().unwrap().display_name, "张伟");
-        
+        assert_eq!(
+            contact_list.contacts[0].name.as_ref().unwrap().display_name,
+            "张伟"
+        );
+
         // Test searching by international company
         let result = client.search_contacts("中国公司", None);
         assert!(result.is_ok());
-        
+
         let contact_list = result.unwrap();
         assert_eq!(contact_list.contacts.len(), 1);
-        assert_eq!(contact_list.contacts[0].name.as_ref().unwrap().display_name, "张伟");
+        assert_eq!(
+            contact_list.contacts[0].name.as_ref().unwrap().display_name,
+            "张伟"
+        );
     }
 
     #[test]
@@ -845,7 +889,10 @@ mod comprehensive_people_api_tests {
         let network_client = create_failing_client(FailMode::Network);
         let result = network_client.search_contacts("test", None);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), PeopleApiError::NetworkError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            PeopleApiError::NetworkError(_)
+        ));
 
         let api_client = create_failing_client(FailMode::Api);
         let result = api_client.search_contacts("test", None);
@@ -865,28 +912,37 @@ mod comprehensive_people_api_tests {
         // Test getting contact by resource name
         let result = client.get_contact("people/contact1");
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
         assert_eq!(contact.resource_name, "people/contact1");
         assert_eq!(contact.name.as_ref().unwrap().display_name, "John Doe");
-        assert_eq!(contact.name.as_ref().unwrap().given_name, Some("John".to_string()));
-        assert_eq!(contact.name.as_ref().unwrap().family_name, Some("Doe".to_string()));
-        
+        assert_eq!(
+            contact.name.as_ref().unwrap().given_name,
+            Some("John".to_string())
+        );
+        assert_eq!(
+            contact.name.as_ref().unwrap().family_name,
+            Some("Doe".to_string())
+        );
+
         // Check email
         assert_eq!(contact.email_addresses.len(), 1);
         assert_eq!(contact.email_addresses[0].value, "john.doe@example.com");
         assert_eq!(contact.email_addresses[0].type_, Some("work".to_string()));
-        
+
         // Check phone
         assert_eq!(contact.phone_numbers.len(), 1);
         assert_eq!(contact.phone_numbers[0].value, "123-456-7890");
         assert_eq!(contact.phone_numbers[0].type_, Some("mobile".to_string()));
-        
+
         // Check organization
         assert_eq!(contact.organizations.len(), 1);
         assert_eq!(contact.organizations[0].name, Some("Acme Inc".to_string()));
-        assert_eq!(contact.organizations[0].title, Some("Software Developer".to_string()));
-        
+        assert_eq!(
+            contact.organizations[0].title,
+            Some("Software Developer".to_string())
+        );
+
         // Check photos
         assert_eq!(contact.photos.len(), 1);
         assert_eq!(contact.photos[0].url, "https://example.com/photo1.jpg");
@@ -895,11 +951,11 @@ mod comprehensive_people_api_tests {
         // Test contact with multiple emails, phones, and photos
         let result = client.get_contact("people/contact3");
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
         assert_eq!(contact.phone_numbers.len(), 2);
         assert_eq!(contact.photos.len(), 2);
-        
+
         // One photo should be default and one not
         let default_photos: Vec<_> = contact.photos.iter().filter(|p| p.default).collect();
         assert_eq!(default_photos.len(), 1);
@@ -912,7 +968,7 @@ mod comprehensive_people_api_tests {
         // Test getting non-existent contact
         let result = client.get_contact("people/nonexistent");
         assert!(result.is_err());
-        
+
         if let Err(PeopleApiError::ApiError(msg)) = result {
             assert!(msg.contains("Contact not found"));
         } else {
@@ -931,7 +987,10 @@ mod comprehensive_people_api_tests {
         let network_client = create_failing_client(FailMode::Network);
         let result = network_client.get_contact("people/contact1");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), PeopleApiError::NetworkError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            PeopleApiError::NetworkError(_)
+        ));
 
         let api_client = create_failing_client(FailMode::Api);
         let result = api_client.get_contact("people/contact1");
@@ -972,25 +1031,37 @@ mod comprehensive_people_api_tests {
         // Parse the contact
         let result = client.parse_contact(&contact_json);
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
-        
+
         // Verify basic fields
         assert_eq!(contact.resource_name, "people/test_contact");
         assert_eq!(contact.name.as_ref().unwrap().display_name, "Test User");
-        assert_eq!(contact.name.as_ref().unwrap().given_name, Some("Test".to_string()));
-        assert_eq!(contact.name.as_ref().unwrap().family_name, Some("User".to_string()));
-        
+        assert_eq!(
+            contact.name.as_ref().unwrap().given_name,
+            Some("Test".to_string())
+        );
+        assert_eq!(
+            contact.name.as_ref().unwrap().family_name,
+            Some("User".to_string())
+        );
+
         // Verify multiple fields
         assert_eq!(contact.email_addresses.len(), 2);
         assert_eq!(contact.phone_numbers.len(), 2);
         assert_eq!(contact.organizations.len(), 1);
         assert_eq!(contact.photos.len(), 2);
-        
+
         // Check organization
-        assert_eq!(contact.organizations[0].name, Some("Test Company".to_string()));
-        assert_eq!(contact.organizations[0].title, Some("Test Position".to_string()));
-        
+        assert_eq!(
+            contact.organizations[0].name,
+            Some("Test Company".to_string())
+        );
+        assert_eq!(
+            contact.organizations[0].title,
+            Some("Test Position".to_string())
+        );
+
         // One photo should be default
         let default_photos: Vec<_> = contact.photos.iter().filter(|p| p.default).collect();
         assert_eq!(default_photos.len(), 1);
@@ -1000,31 +1071,37 @@ mod comprehensive_people_api_tests {
     #[test]
     fn test_parse_extended_contact() {
         let client = create_test_client();
-        
+
         // Create an extended contact JSON with many fields
-        let extended_json = create_extended_contact_json(
-            "people/extended",
-            "Extended Contact"
-        );
-        
+        let extended_json = create_extended_contact_json("people/extended", "Extended Contact");
+
         // Parse the contact
         let result = client.parse_contact(&extended_json);
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
-        
+
         // Verify basic fields - our parser should handle the fields it knows about
         // and ignore the extra fields gracefully
         assert_eq!(contact.resource_name, "people/extended");
-        assert_eq!(contact.name.as_ref().unwrap().display_name, "Extended Contact");
-        assert_eq!(contact.name.as_ref().unwrap().given_name, Some("Extended".to_string()));
-        assert_eq!(contact.name.as_ref().unwrap().family_name, Some("Contact".to_string()));
-        
+        assert_eq!(
+            contact.name.as_ref().unwrap().display_name,
+            "Extended Contact"
+        );
+        assert_eq!(
+            contact.name.as_ref().unwrap().given_name,
+            Some("Extended".to_string())
+        );
+        assert_eq!(
+            contact.name.as_ref().unwrap().family_name,
+            Some("Contact".to_string())
+        );
+
         // Check that we extracted the fields we support
         assert_eq!(contact.email_addresses.len(), 1);
         assert_eq!(contact.email_addresses[0].value, "extended@example.com");
         assert_eq!(contact.email_addresses[0].type_, Some("work".to_string()));
-        
+
         assert_eq!(contact.phone_numbers.len(), 1);
         assert_eq!(contact.phone_numbers[0].value, "+1234567890");
         assert_eq!(contact.phone_numbers[0].type_, Some("mobile".to_string()));
@@ -1045,15 +1122,15 @@ mod comprehensive_people_api_tests {
         // Parse the contact
         let result = client.parse_contact(&minimal_json);
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
-        
+
         // Verify fields
         assert_eq!(contact.resource_name, "people/minimal");
         assert_eq!(contact.name.as_ref().unwrap().display_name, "Minimal User");
         assert!(contact.name.as_ref().unwrap().given_name.is_none());
         assert!(contact.name.as_ref().unwrap().family_name.is_none());
-        
+
         // Check that other fields are empty
         assert!(contact.email_addresses.is_empty());
         assert!(contact.phone_numbers.is_empty());
@@ -1075,7 +1152,7 @@ mod comprehensive_people_api_tests {
         // Parse should fail
         let result = client.parse_contact(&invalid_json);
         assert!(result.is_err());
-        
+
         if let Err(PeopleApiError::ParseError(msg)) = result {
             assert!(msg.contains("Missing resourceName"));
         } else {
@@ -1102,18 +1179,30 @@ mod comprehensive_people_api_tests {
         // Parse the contact
         let result = client.parse_contact(&international_json);
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
-        
+
         // Verify international fields
         assert_eq!(contact.name.as_ref().unwrap().display_name, "José Müller");
-        assert_eq!(contact.name.as_ref().unwrap().given_name, Some("José".to_string()));
-        assert_eq!(contact.name.as_ref().unwrap().family_name, Some("Müller".to_string()));
-        
+        assert_eq!(
+            contact.name.as_ref().unwrap().given_name,
+            Some("José".to_string())
+        );
+        assert_eq!(
+            contact.name.as_ref().unwrap().family_name,
+            Some("Müller".to_string())
+        );
+
         // Verify organization with non-ASCII characters
-        assert_eq!(contact.organizations[0].name, Some("Deutsche GmbH".to_string()));
-        assert_eq!(contact.organizations[0].title, Some("Entwickler".to_string()));
-        
+        assert_eq!(
+            contact.organizations[0].name,
+            Some("Deutsche GmbH".to_string())
+        );
+        assert_eq!(
+            contact.organizations[0].title,
+            Some("Entwickler".to_string())
+        );
+
         // Verify international phone number
         assert_eq!(contact.phone_numbers[0].value, "+49 123 456789");
     }
@@ -1137,14 +1226,20 @@ mod comprehensive_people_api_tests {
         // Parse the contact
         let result = client.parse_contact(&cjk_json);
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
-        
+
         // Verify CJK fields
         assert_eq!(contact.name.as_ref().unwrap().display_name, "张伟");
-        assert_eq!(contact.name.as_ref().unwrap().given_name, Some("伟".to_string()));
-        assert_eq!(contact.name.as_ref().unwrap().family_name, Some("张".to_string()));
-        
+        assert_eq!(
+            contact.name.as_ref().unwrap().given_name,
+            Some("伟".to_string())
+        );
+        assert_eq!(
+            contact.name.as_ref().unwrap().family_name,
+            Some("张".to_string())
+        );
+
         // Verify organization with CJK characters
         assert_eq!(contact.organizations[0].name, Some("中国公司".to_string()));
         assert_eq!(contact.organizations[0].title, Some("工程师".to_string()));
@@ -1166,12 +1261,12 @@ mod comprehensive_people_api_tests {
         // Parse the contact
         let result = client.parse_contact(&no_names_json);
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
-        
+
         // Verify name is None
         assert!(contact.name.is_none());
-        
+
         // Verify email is present
         assert_eq!(contact.email_addresses.len(), 1);
         assert_eq!(contact.email_addresses[0].value, "unknown@example.com");
@@ -1196,12 +1291,15 @@ mod comprehensive_people_api_tests {
         // Parse the contact
         let result = client.parse_contact(&empty_arrays_json);
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
-        
+
         // Verify name is present
-        assert_eq!(contact.name.as_ref().unwrap().display_name, "Empty Arrays User");
-        
+        assert_eq!(
+            contact.name.as_ref().unwrap().display_name,
+            "Empty Arrays User"
+        );
+
         // Verify other fields are empty arrays
         assert!(contact.email_addresses.is_empty());
         assert!(contact.phone_numbers.is_empty());
@@ -1222,17 +1320,17 @@ mod comprehensive_people_api_tests {
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), PeopleApiError::ParseError(_)));
     }
-    
+
     #[test]
     fn test_very_long_fields() {
         let client = create_test_client();
-        
+
         // Create a contact with very long fields to test handling of large data
         let long_name = "A".repeat(1000);
         let long_email = format!("{}@example.com", "a".repeat(500));
         let long_org_name = "O".repeat(1000);
         let long_title = "T".repeat(1000);
-        
+
         let long_fields_json = create_test_contact_json(
             "people/long_fields",
             &long_name,
@@ -1243,23 +1341,51 @@ mod comprehensive_people_api_tests {
             vec![(Some(&long_org_name), Some(&long_title))],
             vec![("https://example.com/photo.jpg", true)],
         );
-        
+
         // Parse the contact
         let result = client.parse_contact(&long_fields_json);
         assert!(result.is_ok());
-        
+
         let contact = result.unwrap();
-        
+
         // Verify the long fields were parsed correctly
         assert_eq!(contact.name.as_ref().unwrap().display_name.len(), 1000);
-        assert_eq!(contact.name.as_ref().unwrap().given_name.as_ref().unwrap().len(), 1000);
-        assert_eq!(contact.name.as_ref().unwrap().family_name.as_ref().unwrap().len(), 1000);
-        
+        assert_eq!(
+            contact
+                .name
+                .as_ref()
+                .unwrap()
+                .given_name
+                .as_ref()
+                .unwrap()
+                .len(),
+            1000
+        );
+        assert_eq!(
+            contact
+                .name
+                .as_ref()
+                .unwrap()
+                .family_name
+                .as_ref()
+                .unwrap()
+                .len(),
+            1000
+        );
+
         // Verify email by length range rather than exact match to handle slight variations
         let email_len = contact.email_addresses[0].value.len();
-        assert!(email_len > 500, "Email length should be over 500, got {}", email_len);
-        assert!(email_len < 520, "Email length should be under 520, got {}", email_len);
-        
+        assert!(
+            email_len > 500,
+            "Email length should be over 500, got {}",
+            email_len
+        );
+        assert!(
+            email_len < 520,
+            "Email length should be under 520, got {}",
+            email_len
+        );
+
         assert_eq!(contact.organizations[0].name.as_ref().unwrap().len(), 1000);
         assert_eq!(contact.organizations[0].title.as_ref().unwrap().len(), 1000);
     }

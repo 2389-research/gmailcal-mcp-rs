@@ -9,12 +9,12 @@ pub struct Config {
     pub client_secret: String,
     pub refresh_token: String,
     pub access_token: Option<String>,
-    
+
     /// Number of seconds before an access token expires that it should be refreshed.
     /// Allows for proactive refresh to prevent working with nearly-expired tokens.
     /// Can be configured with TOKEN_REFRESH_THRESHOLD_SECONDS environment variable.
     pub token_refresh_threshold: u64,
-    
+
     /// Buffer time in seconds subtracted from the token's expiration time to ensure
     /// we don't use tokens too close to their expiry time. Provides a safety margin.
     /// Can be configured with TOKEN_EXPIRY_BUFFER_SECONDS environment variable.
@@ -45,13 +45,16 @@ impl Config {
 
         // Get optional access token
         let access_token = env::var("GMAIL_ACCESS_TOKEN").ok();
-        
+
         // Get token expiry configuration with defaults
         let token_refresh_threshold = get_token_refresh_threshold_seconds();
         let token_expiry_buffer = get_token_expiry_buffer_seconds();
-        
+
         debug!("OAuth configuration loaded successfully");
-        debug!("Token refresh threshold: {} seconds", token_refresh_threshold);
+        debug!(
+            "Token refresh threshold: {} seconds",
+            token_refresh_threshold
+        );
         debug!("Token expiry buffer: {} seconds", token_expiry_buffer);
 
         Ok(Config {
@@ -72,10 +75,10 @@ pub const OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 // Configuration utility functions
 
 /// Returns the total token expiry time in seconds.
-/// 
+///
 /// This value controls how long the application considers the token valid.
 /// Default is 3540 seconds (59 minutes) if not configured.
-/// 
+///
 /// Environment variable: TOKEN_EXPIRY_SECONDS
 pub fn get_token_expiry_seconds() -> u64 {
     std::env::var("TOKEN_EXPIRY_SECONDS")
@@ -85,11 +88,11 @@ pub fn get_token_expiry_seconds() -> u64 {
 }
 
 /// Returns the buffer time in seconds subtracted from token expiry time.
-/// 
+///
 /// This buffer ensures we don't use tokens that are too close to expiry.
 /// It's subtracted from the token's actual expiry time to create a safety margin.
 /// Default is 60 seconds (1 minute) if not configured.
-/// 
+///
 /// Environment variable: TOKEN_EXPIRY_BUFFER_SECONDS
 pub fn get_token_expiry_buffer_seconds() -> u64 {
     std::env::var("TOKEN_EXPIRY_BUFFER_SECONDS")
@@ -99,11 +102,11 @@ pub fn get_token_expiry_buffer_seconds() -> u64 {
 }
 
 /// Returns the threshold in seconds before token expiry that a refresh should be triggered.
-/// 
+///
 /// This controls how soon before a token expires that the application should proactively
 /// refresh it. This prevents using nearly-expired tokens which might expire during operations.
 /// Default is 300 seconds (5 minutes) if not configured.
-/// 
+///
 /// Environment variable: TOKEN_REFRESH_THRESHOLD_SECONDS
 pub fn get_token_refresh_threshold_seconds() -> u64 {
     std::env::var("TOKEN_REFRESH_THRESHOLD_SECONDS")

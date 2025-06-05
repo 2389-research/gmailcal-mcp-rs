@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use lazy_static::lazy_static;
 /// Testing Utilities Module
 ///
 /// This module provides shared utilities and helpers for testing the Gmail MCP
@@ -8,8 +10,6 @@ use mockall::predicate::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
-#[allow(unused_imports)]
-use lazy_static::lazy_static;
 use std::time::SystemTime;
 
 /// Environment variable management for tests
@@ -28,7 +28,7 @@ impl EnvVarGuard {
     }
 
     /// Set an environment variable for the duration of the test
-    /// 
+    ///
     /// # Arguments
     /// * `key` - The name of the environment variable
     /// * `value` - The value to set the environment variable to
@@ -39,7 +39,7 @@ impl EnvVarGuard {
     }
 
     /// Remove an environment variable for the duration of the test
-    /// 
+    ///
     /// # Arguments
     /// * `key` - The name of the environment variable to remove
     pub fn remove(&mut self, key: &str) {
@@ -65,21 +65,21 @@ impl Drop for EnvVarGuard {
 /// Generate a random email address for testing
 pub fn random_email() -> String {
     use rand::{thread_rng, Rng};
-    
+
     let chars: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
     let random_part: String = thread_rng()
         .sample_iter(rand::distributions::Uniform::new(0, chars.len()))
         .take(10)
         .map(|i| chars[i] as char)
         .collect();
-    
+
     format!("test-{}@example.com", random_part)
 }
 
 /// Generate a random string for testing
 pub fn random_string(length: usize) -> String {
     use rand::{thread_rng, Rng};
-    
+
     let chars: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     thread_rng()
         .sample_iter(rand::distributions::Uniform::new(0, chars.len()))
@@ -130,7 +130,7 @@ pub fn api_error_response(code: u16, message: &str) -> Value {
         "error": {
             "code": code,
             "message": message,
-            "status": "FAILED_PRECONDITION" 
+            "status": "FAILED_PRECONDITION"
         }
     })
 }
@@ -143,18 +143,18 @@ pub struct MockTimeProvider {
 impl MockTimeProvider {
     pub fn new(seconds_from_epoch: u64) -> Self {
         use std::time::{Duration, UNIX_EPOCH};
-        
+
         let current_time = UNIX_EPOCH + Duration::from_secs(seconds_from_epoch);
         MockTimeProvider { current_time }
     }
-    
+
     pub fn now(&self) -> std::time::SystemTime {
         self.current_time
     }
-    
+
     pub fn advance(&mut self, seconds: u64) {
         use std::time::Duration;
-        
+
         self.current_time += Duration::from_secs(seconds);
     }
 }
@@ -162,19 +162,18 @@ impl MockTimeProvider {
 /// Base64 helpers
 pub mod base64_helpers {
     use base64;
-    
+
     /// Encode a string as base64
     pub fn encode(s: &str) -> String {
         base64::encode(s)
     }
-    
+
     /// Decode a base64 string
     pub fn decode(s: &str) -> Result<String, String> {
         base64::decode(s)
             .map_err(|e| format!("Base64 decode error: {}", e))
             .and_then(|bytes| {
-                String::from_utf8(bytes)
-                    .map_err(|e| format!("UTF-8 decode error: {}", e))
+                String::from_utf8(bytes).map_err(|e| format!("UTF-8 decode error: {}", e))
             })
     }
 }
@@ -197,7 +196,7 @@ pub fn create_gmail_message(
             { "name": "Date", "value": "Tue, 01 Apr 2025 12:34:56 +0000" }
         ]
     });
-    
+
     if let Some(html) = body_html {
         // Multipart message with both text and HTML
         payload["mimeType"] = json!("multipart/alternative");
@@ -225,7 +224,7 @@ pub fn create_gmail_message(
             "size": body_text.len()
         });
     }
-    
+
     json!({
         "id": id,
         "threadId": thread_id,
@@ -250,7 +249,7 @@ pub fn create_calendar_event(
             "responseStatus": "needsAction"
         }));
     }
-    
+
     json!({
         "id": id,
         "summary": summary,
@@ -261,7 +260,7 @@ pub fn create_calendar_event(
         },
         "end": {
             "dateTime": end_time,
-            "timeZone": "UTC" 
+            "timeZone": "UTC"
         },
         "attendees": attendee_list,
         "created": "2025-04-01T10:00:00Z",
@@ -285,7 +284,7 @@ pub fn create_contact(
             "value": email
         }));
     }
-    
+
     let mut phones = Vec::new();
     for (i, phone) in phone_numbers.iter().enumerate() {
         phones.push(json!({
@@ -295,7 +294,7 @@ pub fn create_contact(
             "value": phone
         }));
     }
-    
+
     json!({
         "resourceName": resource_name,
         "etag": "test-etag",
@@ -318,44 +317,51 @@ macro_rules! assert_json_contains {
     ($actual:expr, $expected:expr) => {
         let actual_value = &$actual;
         let expected_value = &$expected;
-        
+
         fn check_json_subset(actual: &serde_json::Value, expected: &serde_json::Value) -> bool {
             match (actual, expected) {
-                (serde_json::Value::Object(actual_obj), serde_json::Value::Object(expected_obj)) => {
+                (
+                    serde_json::Value::Object(actual_obj),
+                    serde_json::Value::Object(expected_obj),
+                ) => {
                     for (key, expected_val) in expected_obj {
                         match actual_obj.get(key) {
                             Some(actual_val) => {
                                 if !check_json_subset(actual_val, expected_val) {
                                     return false;
                                 }
-                            },
+                            }
                             None => return false,
                         }
                     }
                     true
-                },
+                }
                 (serde_json::Value::Array(actual_arr), serde_json::Value::Array(expected_arr)) => {
                     // Check if all expected elements are in the actual array
                     // This is an approximation as order might be different
                     if expected_arr.len() > actual_arr.len() {
                         return false;
                     }
-                    
+
                     for expected_item in expected_arr {
-                        if !actual_arr.iter().any(|actual_item| check_json_subset(actual_item, expected_item)) {
+                        if !actual_arr
+                            .iter()
+                            .any(|actual_item| check_json_subset(actual_item, expected_item))
+                        {
                             return false;
                         }
                     }
                     true
-                },
+                }
                 (actual, expected) => actual == expected,
             }
         }
-        
+
         assert!(
             check_json_subset(actual_value, expected_value),
             "JSON assertion failed: expected {:?} to be contained in {:?}",
-            expected_value, actual_value
+            expected_value,
+            actual_value
         );
     };
 }

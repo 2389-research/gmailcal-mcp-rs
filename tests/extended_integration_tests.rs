@@ -1,9 +1,9 @@
+use base64;
 use chrono::{Duration, Utc};
 /// Extended Integration Tests Module
 ///
 /// This module contains simplified integration tests for end-to-end workflows.
 use mcp_gmailcal::errors::GmailApiError;
-use mcp_gmailcal::utils::encode_base64_url_safe;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -102,11 +102,11 @@ mod extended_integration_tests {
         // Create email content with event details
         let email_body = r"
         You're invited to a team meeting!
-        
+
         Date: May 15, 2025
         Time: 10:00 AM - 11:00 AM
         Location: Conference Room A
-        
+
         Please RSVP by replying to this email.
         ";
 
@@ -122,7 +122,7 @@ mod extended_integration_tests {
                     { "name": "Date", "value": "2025-05-14T10:00:00Z" }
                 ],
                 "body": {
-                    "data": encode_base64_url_safe(email_body.as_bytes()),
+                    "data": base64::encode_config(email_body.as_bytes(), base64::URL_SAFE_NO_PAD),
                     "size": email_body.len()
                 }
             }
