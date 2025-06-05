@@ -30,7 +30,6 @@ pub mod token_cache;
 // Core functionality
 pub mod errors;
 pub mod logging;
-pub mod utils;
 
 // API clients
 pub mod calendar_api;
@@ -41,9 +40,15 @@ pub mod people_api;
 pub mod cli;
 pub mod oauth;
 pub mod prompts;
-pub mod server;
 pub mod sse_server;
 pub mod sse_transport;
+
+// rust-mcp-sdk server implementation
+pub mod calendar_tools;
+pub mod gmail_tools;
+pub mod oauth_tools;
+pub mod people_tools;
+pub mod tools;
 
 // ===== Re-exports =====
 
@@ -77,13 +82,8 @@ pub use crate::calendar_api::{
     ConferenceSolution, EntryPoint, EventOrganizer,
 };
 
-// Utils and prompts
+// Prompts
 pub use crate::prompts::*;
-pub use crate::utils::{
-    decode_base64, encode_base64_url_safe, error_codes as utils_error_codes, map_gmail_error,
-    parse_max_results, to_mcp_error,
-};
 
 // Server implementation
-pub use crate::server::GmailServer;
 pub use crate::sse_server::SseServer;

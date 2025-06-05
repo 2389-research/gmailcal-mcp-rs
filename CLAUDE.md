@@ -1,9 +1,16 @@
 # Gmail MCP Server - Development Guidelines
 
-## Build/Test/Run Commands
-- **Build**: `cargo build`
-- **Run (stdio)**: `cargo run` or `cargo run -- --transport stdio`
-- **Run (SSE)**: `cargo run -- --transport sse --port 8080 --host 127.0.0.1`
+## Gmail MCP Server (rust-mcp-sdk)
+- **Build**: `cargo build --bin mcp-gmailcal`
+- **Run (stdio)**: `cargo run --bin mcp-gmailcal`
+- **Test with MCP inspector**: `npx @modelcontextprotocol/inspector cargo run --bin mcp-gmailcal`
+- **Tools Available**: 18 tools (Complete Gmail, Calendar, and Contacts functionality)
+  - OAuth (3): `get_oauth_url`, `complete_oauth`, `auth_status`
+  - Gmail (8): `list_emails`, `get_email`, `search_emails`, `list_labels`, `check_connection`, `analyze_email`, `batch_analyze_emails`, `create_draft_email`
+  - People/Contacts (3): `list_contacts`, `search_contacts`, `get_contact`
+  - Calendar (4): `list_calendars`, `list_events`, `get_event`, `create_event`
+
+## Standard Commands
 - **Test all**: `cargo test`
 - **Test single**: `cargo test test_name`
 - **Integration tests**: `cargo test --test integration_tests`
@@ -13,15 +20,12 @@
 - **Security audit**: `cargo audit`
 - **Benchmarking**: `cargo bench`
 - **Code coverage**: `cargo tarpaulin`
-- **Run with MCP inspector (stdio)**: `npx @modelcontextprotocol/inspector cargo run`
-- **Run with MCP inspector (SSE)**: `npx @modelcontextprotocol/inspector http://localhost:8080/sse`
 
-## OAuth Authentication (NEW!)
-The server now supports OAuth authentication through MCP tools:
+## OAuth Authentication
+The server supports OAuth authentication through MCP tools:
 - **Check auth status**: Use `auth_status` tool
 - **Start OAuth flow**: Use `get_oauth_url` tool with your Google Client ID
 - **Complete OAuth**: Use `complete_oauth` tool with auth code and client secret
-- **Legacy OAuth** (standalone): `cargo run -- auth` (still available for .env setup)
 
 ## Code Style Guidelines
 - **Formatting**: Follow Rust standard formatting (rustfmt)

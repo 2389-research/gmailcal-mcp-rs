@@ -2,7 +2,20 @@
 ///
 /// This module contains tests for Gmail message parsing edge cases,
 /// focusing on base64 encoding/decoding and input sanitization.
-use mcp_gmailcal::utils::{decode_base64, encode_base64_url_safe};
+use base64;
+
+// Helper functions to replace the removed utils
+fn encode_base64_url_safe(data: &[u8]) -> String {
+    base64::encode_config(data, base64::URL_SAFE_NO_PAD)
+}
+
+fn decode_base64(data: &str) -> Result<String, String> {
+    // Try standard base64 first, then URL-safe
+    match base64::decode(data).or_else(|_| base64::decode_config(data, base64::URL_SAFE_NO_PAD)) {
+        Ok(bytes) => String::from_utf8(bytes).map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
 use serde_json::json;
 
 // Create email JSON with content

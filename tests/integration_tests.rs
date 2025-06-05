@@ -4,7 +4,7 @@ use chrono::{Datelike, Timelike, Utc};
 /// This file contains integration tests for the Gmail MCP server
 /// with a focus on testing the server creation and basic functionality.
 ///
-use mcp_gmailcal::{config::Config, errors::GmailApiError, prompts, GmailServer};
+use mcp_gmailcal::{config::Config, errors::GmailApiError, prompts};
 use serde_json::json;
 use std::env;
 use std::sync::Once;
@@ -73,9 +73,8 @@ fn test_gmail_prompt() {
 
 // Test for server creation and basic configuration
 #[test]
-fn test_server_creation() {
+fn test_config_creation() {
     setup();
-    let _server = GmailServer::new();
 
     // We need to ensure all environment variables are set for Config
     // before testing Config::from_env()
