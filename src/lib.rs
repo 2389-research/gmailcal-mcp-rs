@@ -805,10 +805,11 @@ pub mod gmail_api {
             message.push_str("\r\n");
             message.push_str(&draft.body);
 
-            // Base64 encode the message
-            let encoded_message = base64::encode(message.as_bytes())
-                .replace('+', "-")
-                .replace('/', "_");
+            // Base64 encode the message using URL-safe alphabet without padding
+            use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+            use base64::Engine as _;
+
+            let encoded_message = URL_SAFE_NO_PAD.encode(message.as_bytes());
 
             // Create the JSON payload
             let mut message_payload = serde_json::json!({

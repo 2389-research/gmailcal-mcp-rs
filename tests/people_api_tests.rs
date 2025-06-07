@@ -355,7 +355,7 @@ mod mock_people_tests {
         // Create a mock client
         let client = MockPeopleClient::new();
 
-        // Test with a query that should match one contact
+        // Test with a query that should match two contacts
         let contacts = client.search_contacts("john", None).unwrap();
         assert_eq!(contacts.len(), 2); // Both John Smith and Johnny Test match
         assert_eq!(

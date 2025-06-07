@@ -23,7 +23,7 @@ axum = "0.7"
 url = "2.5"
 webbrowser = "0.8"
 rand = "0.8"
-base64 = "0.13"
+base64 = "0.22"
 uuid = { version = "1.7", features = ["v4"] }
 
 [dev-dependencies]

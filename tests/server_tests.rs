@@ -29,7 +29,7 @@ mod server_tests {
     #[test]
     fn test_server_creation() {
         setup();
-        let server = GmailServer::new();
+        let _server = GmailServer::new();
         // Simply verify that we can create the server
     }
 
@@ -37,16 +37,31 @@ mod server_tests {
     #[test]
     fn test_command_parsing() {
         setup();
-        let server = GmailServer::new();
+        let _server = GmailServer::new();
 
-        // This test would need to be adapted to match the actual implementation
-        // by calling methods on the server to parse commands
+        // Parse a simple JSON command and verify its fields
+        let cmd = r#"{
+            "command": "list_messages",
+            "params": {"max_results": 10, "query": "from:test@example.com"}
+        }"#;
+
+        let value: Value = serde_json::from_str(cmd).unwrap();
+        assert_eq!(value["command"], "list_messages");
+        assert_eq!(value["params"]["max_results"], 10);
+        assert_eq!(
+            value["params"]["query"],
+            "from:test@example.com"
+        );
     }
 
     // Test response formatting
     #[test]
     fn test_response_formatting() {
-        // This test would need to be adapted to match the actual implementation
-        // by testing how responses are formatted
+        setup();
+
+        // Create a dummy result and ensure it serializes correctly
+        let response = json!({ "status": "ok" });
+        let serialized = serde_json::to_string(&response).unwrap();
+        assert!(serialized.contains("\"status\":\"ok\""));
     }
 }

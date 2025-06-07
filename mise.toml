@@ -3,7 +3,7 @@ rust = "1.85.0"
 
 [tasks."llm:generate_bundle"]
 description = 'Generate LLM bundle output file using repomix'
-hide = true # hide this task from the lis
+hide = true # hide this task from the list
 run = """
 #!/usr/bin/env bash
 
